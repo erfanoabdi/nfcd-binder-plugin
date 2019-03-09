@@ -48,7 +48,7 @@
 
 /* binder_hexdump_log is a sub-module, just to turn prefix off */
 GLogModule binder_hexdump_log = {
-    .name = "binder.hexdump",
+    .name = "binder-hexdump",
     .parent = &GLOG_MODULE_NAME,
     .max_level = GLOG_LEVEL_MAX,
     .level = GLOG_LEVEL_INHERIT,
