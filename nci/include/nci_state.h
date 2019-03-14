@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2018-2019 Jolla Ltd.
- * Copyright (C) 2018-2019 Slava Monich <slava.monich@jolla.com>
+ * Copyright (C) 2019 Jolla Ltd.
+ * Copyright (C) 2019 Slava Monich <slava.monich@jolla.com>
  *
  * You may use this file under the terms of BSD license as follows:
  *
@@ -30,49 +30,41 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NCI_TYPES_PRIVATE_H
-#define NCI_TYPES_PRIVATE_H
+#ifndef NCI_STATE_H
+#define NCI_STATE_H
 
-#include <nci_types.h>
+#include "nci_types.h"
 
-typedef struct nci_sar NciSar;
-typedef struct nci_sm NciSm;
-typedef struct nci_transition NciTransition;
+#include <glib-object.h>
 
-typedef enum nci_request_status {
-    NCI_REQUEST_SUCCESS,
-    NCI_REQUEST_TIMEOUT,
-    NCI_REQUEST_CANCELLED
-} NCI_REQUEST_STATUS;
+G_BEGIN_DECLS
 
-typedef
+typedef struct nci_state_priv NciStatePriv;
+
+struct nci_state {
+    GObject object;
+    NciStatePriv* priv;
+    NCI_STATE state;
+    const char* name;
+    gboolean active;
+};
+
+GType nci_state_get_type(void);
+#define NCI_TYPE_STATE (nci_state_get_type())
+#define NCI_STATE(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), \
+        NCI_TYPE_STATE, NciState))
+
+NciState*
+nci_state_ref(
+    NciState* state);
+
 void
-(*NciSmResponseFunc)(
-    NCI_REQUEST_STATUS status,
-    const GUtilData* payload,
-    gpointer user_data);
+nci_state_unref(
+    NciState* state);
 
-/* Stall modes */
-typedef enum nci_stall {
-    NCI_STALL_STOP,
-    NCI_STALL_ERROR
-} NCI_STALL;
+G_END_DECLS
 
-/* Debug log */
-#define DIR_IN  '>'
-#define DIR_OUT '<'
-
-/* Message Type (MT) */
-#define NCI_MT_MASK     (0xe0)
-#define NCI_MT_DATA_PKT (0x00)
-#define NCI_MT_CMD_PKT  (0x20)
-#define NCI_MT_RSP_PKT  (0x40)
-#define NCI_MT_NTF_PKT  (0x60)
-
-/* Packet Boundary Flag (PBF) */
-#define NCI_PBF         (0x10)
-
-#endif /* NCI_TYPES_PRIVATE_H */
+#endif /* NCI_STATE_H */
 
 /*
  * Local Variables:

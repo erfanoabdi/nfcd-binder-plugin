@@ -102,7 +102,7 @@ struct binder_nfc_adapter {
     BinderNfcAdapterFunc open_cplt;
     BinderNfcAdapterFunc close_cplt;
 
-    NCI_STATE desired_state;
+    NFC_MODE desired_mode;
     NFC_MODE current_mode;
     gboolean mode_change_pending;
 
@@ -676,7 +676,7 @@ binder_nfc_adapter_mode_check(
         NFC_MODE_READER_WRITER : NFC_MODE_NONE;
 
     if (self->mode_change_pending) {
-        if (nci->current_state == self->desired_state) {
+        if (mode == self->desired_mode) {
             self->mode_change_pending = FALSE;
             self->current_mode = mode;
             nfc_adapter_mode_notify(&self->adapter, mode, TRUE);
@@ -753,8 +753,7 @@ binder_nfc_adapter_maybe_drop_target(
 {
     NciCore* nci = self->nci;
 
-    if (nci->current_state != NCI_RFST_POLL_ACTIVE ||
-        nci->next_state != NCI_RFST_POLL_ACTIVE) {
+    if (nci->next_state != NCI_RFST_POLL_ACTIVE) {
         binder_nfc_adapter_drop_target(self);
     }
 }
@@ -967,6 +966,7 @@ binder_nfc_adapter_submit_power_request(
     gboolean on)
 {
     BinderNfcAdapter* self = BINDER_NFC_ADAPTER(adapter);
+    NciCore* nci = self->nci;
 
     self->need_power = on;
     if (self->pending_tx) {
@@ -975,7 +975,7 @@ binder_nfc_adapter_submit_power_request(
     } else if (on) {
         if (self->power_on) {
             GDEBUG("Adapter already opened");
-            nci_core_set_state(self->nci, NCI_RFST_IDLE);
+            nci_core_set_state(nci, NCI_RFST_IDLE);
             /* Power stays on, we are done */
         } else {
             self->power_switch_pending = binder_nfc_adapter_open(self);
@@ -986,8 +986,10 @@ binder_nfc_adapter_submit_power_request(
                 self->power_switch_pending = binder_nfc_adapter_close(self);
             } else {
                 GDEBUG("Waiting for NCI state machine to become idle");
-                self->power_switch_pending = nci_core_set_state(self->nci,
-                    NCI_RFST_IDLE);
+                nci_core_set_state(nci, NCI_RFST_IDLE);
+                self->power_switch_pending =
+                    (nci->current_state != NCI_RFST_IDLE &&
+                    nci->next_state == NCI_RFST_IDLE);
             }
         } else {
             GDEBUG("Adapter already closed");
@@ -1016,14 +1018,11 @@ binder_nfc_adapter_submit_mode_request(
 {
     BinderNfcAdapter* self = BINDER_NFC_ADAPTER(adapter);
 
-    self->mode_change_pending = nci_core_set_state(self->nci, NCI_RFST_IDLE);
-    if (self->mode_change_pending) {
-        self->desired_state = NCI_RFST_IDLE;
-        binder_nfc_adapter_schedule_mode_check(self);
-        return TRUE;
-    } else {
-        return FALSE;
-    }
+    self->desired_mode = mode;
+    self->mode_change_pending = TRUE;
+    nci_core_set_state(self->nci, NCI_RFST_DISCOVERY);
+    binder_nfc_adapter_schedule_mode_check(self);
+    return TRUE;
 }
 
 static

@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2018-2019 Jolla Ltd.
- * Copyright (C) 2018-2019 Slava Monich <slava.monich@jolla.com>
+ * Copyright (C) 2019 Jolla Ltd.
+ * Copyright (C) 2019 Slava Monich <slava.monich@jolla.com>
  *
  * You may use this file under the terms of BSD license as follows:
  *
@@ -30,49 +30,79 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NCI_TYPES_PRIVATE_H
-#define NCI_TYPES_PRIVATE_H
+#ifndef NCI_STATE_PRIVATE_H
+#define NCI_STATE_PRIVATE_H
 
-#include <nci_types.h>
+#include "nci_types_p.h"
 
-typedef struct nci_sar NciSar;
-typedef struct nci_sm NciSm;
-typedef struct nci_transition NciTransition;
+#include "nci_state.h"
 
-typedef enum nci_request_status {
-    NCI_REQUEST_SUCCESS,
-    NCI_REQUEST_TIMEOUT,
-    NCI_REQUEST_CANCELLED
-} NCI_REQUEST_STATUS;
+NciSm*
+nci_state_sm(
+    NciState* state);
 
-typedef
+NciSar*
+nci_state_sar(
+    NciState* state);
+
+NciTransition*
+nci_state_get_transition(
+    NciState* state,
+    NCI_STATE dest);
+
 void
-(*NciSmResponseFunc)(
-    NCI_REQUEST_STATUS status,
-    const GUtilData* payload,
-    gpointer user_data);
+nci_state_add_transition(
+    NciState* state,
+    NciTransition* transition);
 
-/* Stall modes */
-typedef enum nci_stall {
-    NCI_STALL_STOP,
-    NCI_STALL_ERROR
-} NCI_STALL;
+void
+nci_state_enter(
+    NciState* state,
+    void* param);
 
-/* Debug log */
-#define DIR_IN  '>'
-#define DIR_OUT '<'
+void
+nci_state_reenter(
+    NciState* state,
+    void* param);
 
-/* Message Type (MT) */
-#define NCI_MT_MASK     (0xe0)
-#define NCI_MT_DATA_PKT (0x00)
-#define NCI_MT_CMD_PKT  (0x20)
-#define NCI_MT_RSP_PKT  (0x40)
-#define NCI_MT_NTF_PKT  (0x60)
+void
+nci_state_leave(
+    NciState* state);
 
-/* Packet Boundary Flag (PBF) */
-#define NCI_PBF         (0x10)
+void
+nci_state_handle_ntf(
+    NciState* state,
+    guint8 gid,
+    guint8 oid,
+    const GUtilData* payload);
 
-#endif /* NCI_TYPES_PRIVATE_H */
+/* Specific states */
+
+NciState* /* NCI_STATE_INIT */
+nci_state_init_new(
+    NciSm* sm);
+
+NciState* /* NCI_STATE_ERROR */
+nci_state_error_new(
+    NciSm* sm);
+
+NciState* /* NCI_STATE_STOP */
+nci_state_stop_new(
+    NciSm* sm);
+
+NciState* /* NCI_RFST_IDLE */
+nci_state_idle_new(
+    NciSm* sm);
+
+NciState* /* NCI_RFST_DISCOVERY */
+nci_state_discovery_new(
+    NciSm* sm);
+
+NciState* /* NCI_RFST_POLL_ACTIVE */
+nci_state_poll_active_new(
+    NciSm* sm);
+
+#endif /* NCI_STATE_PRIVATE_H */
 
 /*
  * Local Variables:

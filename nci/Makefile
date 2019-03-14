@@ -30,7 +30,17 @@ LIB = $(LIB_NAME).a
 
 SRC = \
   nci_core.c \
-  nci_sar.c
+  nci_sar.c \
+  nci_sm.c \
+  nci_state.c \
+  nci_state_discovery.c \
+  nci_state_poll_active.c \
+  nci_transition.c \
+  nci_transition_deactivate_to_idle.c \
+  nci_transition_idle_to_discovery.c \
+  nci_transition_poll_active_to_discovery.c \
+  nci_transition_poll_active_to_idle.c \
+  nci_transition_reset.c
 
 #
 # Directories

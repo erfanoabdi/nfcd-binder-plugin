@@ -623,7 +623,6 @@ test_null(
     NciCore* nci = nci_core_new(&test_dummy_hal_io);
 
     g_assert(!nci_core_new(NULL));
-    g_assert(!nci_core_set_state(NULL, NCI_STATE_INIT));
     g_assert(!nci_core_send_data_msg(NULL, 0, NULL, NULL, NULL, NULL));
     g_assert(!nci_core_add_current_state_changed_handler(NULL, NULL, NULL));
     g_assert(!nci_core_add_next_state_changed_handler(NULL, NULL, NULL));
@@ -636,9 +635,9 @@ test_null(
     g_assert(!nci_core_add_data_packet_handler(nci, NULL, NULL));
     nci_core_remove_handler(nci, 0);
 
+    nci_core_set_state(NULL, NCI_STATE_INIT);
+    nci_core_cancel(NULL, 0);
     nci_core_remove_handler(NULL, 0);
-    nci_core_cancel(NULL, FALSE);
-    nci_core_stall(NULL, FALSE);
     nci_core_restart(NULL);
     nci_core_free(NULL);
 
@@ -692,9 +691,6 @@ test_restart(
     g_assert(nci->next_state == NCI_RFST_IDLE);
     nci_core_remove_handler(nci, id);
 
-    nci_core_cancel(nci, FALSE);
-    nci_core_stall(nci, TRUE);
-    nci_core_stall(nci, FALSE);
     nci_core_free(nci);
     test_hal_io_free(hal);
     g_main_loop_unref(loop);
@@ -726,9 +722,8 @@ test_init_ok(
     gulong id;
 
     /* Second time does nothing */
-    g_assert(nci_core_set_state(nci, NCI_RFST_IDLE));
-    g_assert(nci_core_set_state(nci, NCI_RFST_IDLE));
-    g_assert(!nci_core_set_state(nci, NCI_STATE_INIT)); /* No way back */
+    nci_core_set_state(nci, NCI_RFST_IDLE);
+    nci_core_set_state(nci, NCI_RFST_IDLE);
     /* Couple of error notifications (ignored) */
     test_hal_io_queue_ntf(hal, CORE_GENERIC_ERROR_BROKEN_NTF);
     test_hal_io_queue_ntf(hal, CORE_GENERIC_ERROR_NTF);
@@ -743,6 +738,9 @@ test_init_ok(
     test_hal_io_queue_rsp(hal, CORE_GET_CONFIG_RSP);
     /* And a valid notification */
     test_hal_io_queue_ntf(hal, CORE_CONN_CREDITS_NTF);
+    /* Two more error notifications (ignored) */
+    test_hal_io_queue_ntf(hal, CORE_GENERIC_ERROR_BROKEN_NTF);
+    test_hal_io_queue_ntf(hal, CORE_GENERIC_ERROR_NTF);
 
     id = nci_core_add_current_state_changed_handler(nci,
         test_init_ok_done, loop);
@@ -786,7 +784,7 @@ test_init_failed1(
     guint timeout_id;
     gulong id;
 
-    g_assert(nci_core_set_state(nci, NCI_RFST_IDLE));
+    nci_core_set_state(nci, NCI_RFST_IDLE);
     id = nci_core_add_current_state_changed_handler(nci,
         test_init_failed1_done, loop);
 
@@ -831,7 +829,7 @@ test_init_failed2(
     hal->fail_write++;
     nci = nci_core_new(&hal->io);
     loop = g_main_loop_new(NULL, TRUE);
-    g_assert(nci_core_set_state(nci, NCI_RFST_IDLE));
+    nci_core_set_state(nci, NCI_RFST_IDLE);
     id = nci_core_add_current_state_changed_handler(nci,
         test_init_failed2_done, loop);
 
@@ -859,6 +857,7 @@ typedef struct test_nci_sm_entry_send_data TestSmEntrySendData;
 typedef struct test_nci_sm_entry_queue_read TestSmEntryQueueRead;
 typedef struct test_nci_sm_entry_assert_states TestSmEntryAssertStates;
 typedef struct test_nci_sm_entry_state TestSmEntryState;
+typedef struct test_nci_sm_entry_activation TestEntryActivation;
 
 typedef struct test_nci_sm_data {
     const char* name;
@@ -896,6 +895,11 @@ struct test_nci_sm_entry {
         struct test_nci_sm_entry_state {
             NCI_STATE state;
         } state;
+        struct test_nci_sm_entry_activation {
+            NCI_RF_INTERFACE rf_intf;
+            NCI_PROTOCOL protocol;
+            NCI_MODE mode;
+        } activation;
     } data;
 };
 
@@ -924,6 +928,9 @@ struct test_nci_sm_entry {
 #define TEST_NCI_SM_WAIT_STATE(wait_state) { \
     .func = test_nci_sm_wait_state, \
     .data.state = { .state = wait_state } }
+#define TEST_NCI_SM_WAIT_ACTIVATION(intf,prot,mod) { \
+    .func = test_nci_sm_wait_activation, \
+    .data.activation = { .rf_intf = intf, .protocol = prot, .mode = mod } }
 #define TEST_NCI_SM_END() { .func = NULL }
 
 static
@@ -989,7 +996,7 @@ void
 test_nci_sm_set_state(
     TestNciSm* test)
 {
-    g_assert(nci_core_set_state(test->nci, test->entry->data.state.state));
+    nci_core_set_state(test->nci, test->entry->data.state.state);
 }
 
 static
@@ -1002,6 +1009,7 @@ test_nci_sm_wait_state_cb(
     const TestSmEntryState* wait = &test->entry->data.state;
 
     GDEBUG("Current state %d", nci->current_state);
+    g_assert(nci == test->nci);
     if (nci->current_state == wait->state) {
         test_quit_later(test->loop);
     }
@@ -1027,6 +1035,42 @@ test_nci_sm_wait_state(
         nci_core_remove_handler(nci, id);
         g_assert(nci->current_state == wait->state);
     }
+}
+
+static
+void
+test_nci_sm_wait_activation_cb(
+    NciCore* nci,
+    const NciIntfActivationNtf* ntf,
+    void* user_data)
+{
+    TestNciSm* test = user_data;
+    const TestEntryActivation* wait = &test->entry->data.activation;
+
+    GDEBUG("Activation %u/%u/%u", ntf->rf_intf, ntf->protocol, ntf->mode);
+    g_assert(nci == test->nci);
+    if (ntf->rf_intf == wait->rf_intf &&
+        ntf->protocol == wait->protocol &&
+        ntf->mode == wait->mode) {
+        test_quit_later(test->loop);
+    }
+}
+
+static
+void
+test_nci_sm_wait_activation(
+    TestNciSm* test)
+{
+    NciCore* nci = test->nci;
+    const TestEntryActivation* wait = &test->entry->data.activation;
+    gulong id = nci_core_add_intf_activated_handler(nci,
+        test_nci_sm_wait_activation_cb, test);
+
+    GDEBUG("Waiting for %u/%u/%u activation", wait->rf_intf,
+        wait->protocol, wait->mode);
+    test_hal_io_flush_ntf(test->hal);
+    g_main_loop_run(test->loop);
+    nci_core_remove_handler(nci, id);
 }
 
 static
@@ -1219,7 +1263,7 @@ static const TestSmEntry test_nci_sm_discovery_broken[] = {
 
 static const TestSmEntry test_nci_sm_discovery_v2[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(CORE_RESET_V2_RSP),
     TEST_NCI_SM_QUEUE_NTF(CORE_RESET_V2_NTF),
     TEST_NCI_SM_QUEUE_RSP(CORE_INIT_V2_RSP_NO_ROUTING),
@@ -1235,7 +1279,7 @@ static const TestSmEntry test_nci_sm_discovery_v2[] = {
 
 static const TestSmEntry test_nci_sm_discovery_v2_protocol[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(CORE_RESET_V2_RSP),
     TEST_NCI_SM_QUEUE_NTF(CORE_RESET_V2_NTF),
     TEST_NCI_SM_QUEUE_RSP(CORE_INIT_V2_RSP),
@@ -1252,7 +1296,7 @@ static const TestSmEntry test_nci_sm_discovery_v2_protocol[] = {
 
 static const TestSmEntry test_nci_sm_discovery_v2_protocol_error[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(CORE_RESET_V2_RSP),
     TEST_NCI_SM_QUEUE_NTF(CORE_RESET_V2_NTF),
     TEST_NCI_SM_QUEUE_RSP(CORE_INIT_V2_RSP_NO_TECHNOLOGY_ROUTING),
@@ -1269,7 +1313,7 @@ static const TestSmEntry test_nci_sm_discovery_v2_protocol_error[] = {
 
 static const TestSmEntry test_nci_sm_discovery_v2_technology1[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(CORE_RESET_V2_RSP),
     TEST_NCI_SM_QUEUE_NTF(CORE_RESET_V2_NTF),
     TEST_NCI_SM_QUEUE_RSP(CORE_INIT_V2_RSP),
@@ -1287,7 +1331,7 @@ static const TestSmEntry test_nci_sm_discovery_v2_technology1[] = {
 
 static const TestSmEntry test_nci_sm_discovery_v2_technology2[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(CORE_RESET_V2_RSP),
     TEST_NCI_SM_QUEUE_NTF(CORE_RESET_V2_NTF),
     TEST_NCI_SM_QUEUE_RSP(CORE_INIT_V2_RSP),
@@ -1305,7 +1349,7 @@ static const TestSmEntry test_nci_sm_discovery_v2_technology2[] = {
 
 static const TestSmEntry test_nci_sm_discovery_v2_technology3[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(CORE_RESET_V2_RSP),
     TEST_NCI_SM_QUEUE_NTF(CORE_RESET_V2_NTF),
     TEST_NCI_SM_QUEUE_RSP(CORE_INIT_V2_RSP_NO_PROTOCOL_ROUTING),
@@ -1322,7 +1366,7 @@ static const TestSmEntry test_nci_sm_discovery_v2_technology3[] = {
 
 static const TestSmEntry test_nci_sm_discovery_v2_technology4[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(CORE_RESET_V2_RSP),
     TEST_NCI_SM_QUEUE_NTF(CORE_RESET_V2_NTF),
     TEST_NCI_SM_QUEUE_RSP(CORE_INIT_V2_RSP_NO_PROTOCOL_ROUTING),
@@ -1339,7 +1383,7 @@ static const TestSmEntry test_nci_sm_discovery_v2_technology4[] = {
 
 static const TestSmEntry test_nci_sm_discovery_v2_technology5[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(CORE_RESET_V2_RSP),
     TEST_NCI_SM_QUEUE_NTF(CORE_RESET_V2_NTF),
     TEST_NCI_SM_QUEUE_RSP(CORE_INIT_V2_RSP_NO_PROTOCOL_ROUTING),
@@ -1385,8 +1429,10 @@ static const TestSmEntry test_nci_sm_discovery_idle_discovery[] = {
     TEST_NCI_SM_QUEUE_NTF(CORE_CONN_CREDITS_NTF),
 
     /* Switch state machine to DISCOVERY state */
-    TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
+    TEST_NCI_SM_SET_STATE(NCI_RFST_IDLE),
     TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_NTF(RF_IGNORED_NTF),          /* Ignored */
     TEST_NCI_SM_QUEUE_NTF(NFCEE_IGNORED_NTF),       /* Ignored */
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_DISCOVERY),
@@ -1414,7 +1460,7 @@ static const TestSmEntry test_nci_sm_discovery_idle_failed[] = {
 
     /* Switch state machine to DISCOVERY state */
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_MAP_RSP),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_RSP),
     TEST_NCI_SM_QUEUE_NTF(CORE_CONN_CREDITS_NTF),
@@ -1435,7 +1481,7 @@ static const TestSmEntry test_nci_sm_discovery_idle_broken[] = {
 
     /* Switch state machine to DISCOVERY state */
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_MAP_RSP),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_RSP),
     TEST_NCI_SM_QUEUE_NTF(CORE_CONN_CREDITS_NTF),
@@ -1458,7 +1504,7 @@ static const TestSmEntry test_nci_sm_discovery_poll_idle[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_MAP_RSP),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_RSP),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_DISCOVERY),
 
     /* Simulate activation */
@@ -1466,6 +1512,8 @@ static const TestSmEntry test_nci_sm_discovery_poll_idle[] = {
     TEST_NCI_SM_QUEUE_NTF(CORE_IGNORED_NTF),        /* Ignored */
     TEST_NCI_SM_QUEUE_NTF(NFCEE_IGNORED_NTF),       /* Ignored */
     TEST_NCI_SM_QUEUE_NTF(CORE_CONN_CREDITS_NTF),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_FRAME,
+        NCI_PROTOCOL_T2T, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* And then switch back to IDLE */
@@ -1489,12 +1537,14 @@ static const TestSmEntry test_nci_sm_discovery_poll_idle_failed[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_MAP_RSP),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_RSP),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_DISCOVERY),
 
     /* Simulate activation */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T2),
     TEST_NCI_SM_QUEUE_NTF(CORE_CONN_CREDITS_NTF),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_FRAME,
+        NCI_PROTOCOL_T2T, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* And then switch back to IDLE (and fail) */
@@ -1513,12 +1563,14 @@ static const TestSmEntry test_nci_sm_discovery_poll_idle_broken1[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_MAP_RSP),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_RSP),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_DISCOVERY),
 
     /* Simulate activation */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T2),
     TEST_NCI_SM_QUEUE_NTF(CORE_CONN_CREDITS_NTF),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_FRAME,
+        NCI_PROTOCOL_T2T, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* And then switch back to IDLE (and fail) */
@@ -1537,12 +1589,14 @@ static const TestSmEntry test_nci_sm_discovery_poll_idle_broken2[] = {
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_MAP_RSP),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_RSP),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_DISCOVERY),
 
     /* Simulate activation */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T2),
     TEST_NCI_SM_QUEUE_NTF(CORE_CONN_CREDITS_NTF),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_FRAME,
+        NCI_PROTOCOL_T2T, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* And then switch back to IDLE (and fail) */
@@ -1562,12 +1616,14 @@ static const TestSmEntry test_nci_sm_discovery_poll_discovery[] = {
 
     /* Switch state machine to DISCOVERY state */
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_DISCOVERY),
 
     /* Simulate activation */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T2),
     TEST_NCI_SM_QUEUE_NTF(CORE_CONN_CREDITS_NTF),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_FRAME,
+        NCI_PROTOCOL_T2T, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* And then switch back to DISCOVERY */
@@ -1605,6 +1661,8 @@ static const TestSmEntry test_nci_sm_dscvr_poll_dscvr_error1[] = {
 
     /* Simulate activation */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T2),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_FRAME,
+        NCI_PROTOCOL_T2T, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* And then switch back to DISCOVERY (and fail) */
@@ -1630,6 +1688,8 @@ static const TestSmEntry test_nci_sm_dscvr_poll_dscvr_error2[] = {
 
     /* Simulate activation */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T2),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_FRAME,
+        NCI_PROTOCOL_T2T, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* And then switch back to DISCOVERY (and fail) */
@@ -1653,6 +1713,8 @@ static const TestSmEntry test_nci_sm_dscvr_poll_dscvr_error3[] = {
 
     /* Simulate activation */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T2),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_FRAME,
+        NCI_PROTOCOL_T2T, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* And then switch back to DISCOVERY (and fail) */
@@ -1676,6 +1738,8 @@ static const TestSmEntry test_nci_sm_dscvr_poll_dscvr_broken[] = {
 
     /* Simulate activation */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T2),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_FRAME,
+        NCI_PROTOCOL_T2T, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* And then switch back to DISCOVERY (and fail) */
@@ -1705,11 +1769,13 @@ static const TestSmEntry test_nci_sm_dscvr_poll_read_dscvr[] = {
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_MAP_RSP),
     TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_RSP),
     TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
-    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_IDLE),
+    TEST_NCI_SM_ASSERT_STATES(NCI_STATE_INIT, NCI_RFST_DISCOVERY),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_DISCOVERY),
 
     /* Activation */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T2),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_FRAME,
+        NCI_PROTOCOL_T2T, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* Read sector 0 */
@@ -1738,6 +1804,8 @@ static const TestSmEntry test_nci_sm_dscvr_poll_deact_t4a[] = {
 
     /* Activation */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T4A),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_ISO_DEP,
+        NCI_PROTOCOL_ISO_DEP, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* Deactivate to IDLE */
@@ -1842,6 +1910,8 @@ static const TestSmEntry test_nci_sm_dscvr_poll_deact_t4a_badparam1[] = {
 
     /* Activation */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T4A_BROKEN_ACT_PARAM1),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_ISO_DEP,
+        NCI_PROTOCOL_ISO_DEP, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
     /* Deactivate to IDLE */
@@ -1866,6 +1936,8 @@ static const TestSmEntry test_nci_sm_dscvr_poll_deact_t4a_badparam2[] = {
 
     /* Activation (missing activation parameters, not a fatal error) */
     TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T4A_BROKEN_ACT_PARAM2),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_ISO_DEP,
+        NCI_PROTOCOL_ISO_DEP, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
     TEST_NCI_SM_END()
 };

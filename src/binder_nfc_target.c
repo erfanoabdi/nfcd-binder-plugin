@@ -356,7 +356,7 @@ binder_nfc_target_deactivate(
 {
     BinderNfcTarget* self = BINDER_NFC_TARGET(target);
 
-    GVERIFY(nci_core_set_state(self->nci, NCI_RFST_IDLE));
+    nci_core_set_state(self->nci, NCI_RFST_IDLE);
 }
 
 static

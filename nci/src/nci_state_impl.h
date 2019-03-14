@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2018-2019 Jolla Ltd.
- * Copyright (C) 2018-2019 Slava Monich <slava.monich@jolla.com>
+ * Copyright (C) 2019 Jolla Ltd.
+ * Copyright (C) 2019 Slava Monich <slava.monich@jolla.com>
  *
  * You may use this file under the terms of BSD license as follows:
  *
@@ -30,49 +30,46 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NCI_TYPES_PRIVATE_H
-#define NCI_TYPES_PRIVATE_H
+#ifndef NCI_STATE_IMPL_H
+#define NCI_STATE_IMPL_H
 
-#include <nci_types.h>
+#include "nci_state.h"
 
-typedef struct nci_sar NciSar;
-typedef struct nci_sm NciSm;
-typedef struct nci_transition NciTransition;
+/* Internal API for use by NciState implemenations */
 
-typedef enum nci_request_status {
-    NCI_REQUEST_SUCCESS,
-    NCI_REQUEST_TIMEOUT,
-    NCI_REQUEST_CANCELLED
-} NCI_REQUEST_STATUS;
+typedef struct nci_state_class {
+    GObjectClass parent;
+    void (*enter)(NciState* self, void* param);
+    void (*reenter)(NciState* self, void* param);
+    void (*leave)(NciState* self);
+    void (*handle_ntf)(NciState* self, guint8 gid, guint8 oid,
+        const GUtilData* payload);
+} NciStateClass;
 
-typedef
+#define NCI_STATE_CLASS(klass) G_TYPE_CHECK_CLASS_CAST((klass), \
+        NCI_TYPE_STATE, NciStateClass)
+
 void
-(*NciSmResponseFunc)(
-    NCI_REQUEST_STATUS status,
-    const GUtilData* payload,
+nci_state_init_base(
+    NciState* self,
+    NciSm* sm,
+    NCI_STATE state,
+    const char* name);
+
+gboolean
+nci_state_send_command(
+    NciState* self,
+    guint8 gid,
+    guint8 oid,
+    GBytes* payload,
+    NciSmResponseFunc resp,
     gpointer user_data);
 
-/* Stall modes */
-typedef enum nci_stall {
-    NCI_STALL_STOP,
-    NCI_STALL_ERROR
-} NCI_STALL;
+void
+nci_state_error(
+    NciState* self);
 
-/* Debug log */
-#define DIR_IN  '>'
-#define DIR_OUT '<'
-
-/* Message Type (MT) */
-#define NCI_MT_MASK     (0xe0)
-#define NCI_MT_DATA_PKT (0x00)
-#define NCI_MT_CMD_PKT  (0x20)
-#define NCI_MT_RSP_PKT  (0x40)
-#define NCI_MT_NTF_PKT  (0x60)
-
-/* Packet Boundary Flag (PBF) */
-#define NCI_PBF         (0x10)
-
-#endif /* NCI_TYPES_PRIVATE_H */
+#endif /* NCI_STATE_IMPL_H */
 
 /*
  * Local Variables:

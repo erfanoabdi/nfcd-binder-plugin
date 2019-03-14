@@ -37,7 +37,6 @@
 
 /* SAR (Segmentation and Reassembly) */
 
-typedef struct nci_sar NciSar;
 typedef struct nci_sar_client NciSarClient;
 
 typedef struct nci_sar_client_functions {

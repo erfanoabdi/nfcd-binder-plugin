@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2018-2019 Jolla Ltd.
- * Copyright (C) 2018-2019 Slava Monich <slava.monich@jolla.com>
+ * Copyright (C) 2019 Jolla Ltd.
+ * Copyright (C) 2019 Slava Monich <slava.monich@jolla.com>
  *
  * You may use this file under the terms of BSD license as follows:
  *
@@ -30,49 +30,83 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NCI_TYPES_PRIVATE_H
-#define NCI_TYPES_PRIVATE_H
+#ifndef NCI_TRANSITION_IMPL_H
+#define NCI_TRANSITION_IMPL_H
 
-#include <nci_types.h>
+#include "nci_transition.h"
 
-typedef struct nci_sar NciSar;
-typedef struct nci_sm NciSm;
-typedef struct nci_transition NciTransition;
+/* Internal API for use by NciTransition implemenations */
 
-typedef enum nci_request_status {
-    NCI_REQUEST_SUCCESS,
-    NCI_REQUEST_TIMEOUT,
-    NCI_REQUEST_CANCELLED
-} NCI_REQUEST_STATUS;
+typedef struct nci_transition_class {
+    GObjectClass parent;
+    gboolean (*start)(NciTransition* self);
+    void (*finished)(NciTransition* self);
+    void (*handle_ntf)(NciTransition* self, guint8 gid, guint8 oid,
+        const GUtilData* payload);
+} NciTransitionClass;
+
+#define NCI_TRANSITION_CLASS(klass) G_TYPE_CHECK_CLASS_CAST((klass), \
+        NCI_TYPE_TRANSITION, NciTransitionClass)
 
 typedef
 void
-(*NciSmResponseFunc)(
+(*NciTransitionResponseFunc)(
     NCI_REQUEST_STATUS status,
     const GUtilData* payload,
-    gpointer user_data);
+    NciTransition* transition);
 
-/* Stall modes */
-typedef enum nci_stall {
-    NCI_STALL_STOP,
-    NCI_STALL_ERROR
-} NCI_STALL;
+void
+nci_transition_init_base(
+    NciTransition* self,
+    NciSm* sm,
+    NciState* dest);
 
-/* Debug log */
-#define DIR_IN  '>'
-#define DIR_OUT '<'
+NciSm*
+nci_transition_sm(
+    NciTransition* self);
 
-/* Message Type (MT) */
-#define NCI_MT_MASK     (0xe0)
-#define NCI_MT_DATA_PKT (0x00)
-#define NCI_MT_CMD_PKT  (0x20)
-#define NCI_MT_RSP_PKT  (0x40)
-#define NCI_MT_NTF_PKT  (0x60)
+void
+nci_transition_finish(
+    NciTransition* self,
+    void* param);
 
-/* Packet Boundary Flag (PBF) */
-#define NCI_PBF         (0x10)
+void
+nci_transition_stall(
+    NciTransition* self,
+    NCI_STALL stall);
 
-#endif /* NCI_TYPES_PRIVATE_H */
+gboolean
+nci_transition_active(
+    NciTransition* self);
+
+gboolean
+nci_transition_send_command(
+    NciTransition* self,
+    guint8 gid,
+    guint8 oid,
+    GBytes* payload,
+    NciTransitionResponseFunc resp);
+
+gboolean
+nci_transition_send_command_static(
+    NciTransition* self,
+    guint8 gid,
+    guint8 oid,
+    const void* payload,
+    gsize payload_len,
+    NciTransitionResponseFunc resp);
+
+gboolean
+nci_transition_deactivate_to_idle(
+    NciTransition* self,
+    NciTransitionResponseFunc resp);
+
+gboolean
+nci_transition_deactivate_to_discovery(
+    NciTransition* self,
+    NciTransitionResponseFunc resp);
+
+#endif /* NCI_TRANSITION_IMPL_H */
 
 /*
  * Local Variables:

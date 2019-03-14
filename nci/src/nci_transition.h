@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2018-2019 Jolla Ltd.
- * Copyright (C) 2018-2019 Slava Monich <slava.monich@jolla.com>
+ * Copyright (C) 2019 Jolla Ltd.
+ * Copyright (C) 2019 Slava Monich <slava.monich@jolla.com>
  *
  * You may use this file under the terms of BSD license as follows:
  *
@@ -30,49 +30,80 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NCI_TYPES_PRIVATE_H
-#define NCI_TYPES_PRIVATE_H
+#ifndef NCI_TRANSITION_H
+#define NCI_TRANSITION_H
 
-#include <nci_types.h>
+#include "nci_types_p.h"
 
-typedef struct nci_sar NciSar;
-typedef struct nci_sm NciSm;
-typedef struct nci_transition NciTransition;
+#include <glib-object.h>
 
-typedef enum nci_request_status {
-    NCI_REQUEST_SUCCESS,
-    NCI_REQUEST_TIMEOUT,
-    NCI_REQUEST_CANCELLED
-} NCI_REQUEST_STATUS;
+/* State transition */
+
+typedef struct nci_transition_priv NciTransitionPriv;
+
+struct nci_transition {
+    GObject object;
+    NciTransitionPriv* priv;
+    NciState* dest;
+};
+
+GType nci_transition_get_type(void);
+#define NCI_TYPE_TRANSITION (nci_transition_get_type())
+#define NCI_TRANSITION(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), \
+        NCI_TYPE_TRANSITION, NciTransition))
 
 typedef
 void
-(*NciSmResponseFunc)(
-    NCI_REQUEST_STATUS status,
-    const GUtilData* payload,
-    gpointer user_data);
+(*NciTransitionFunc)(
+    NciTransition* transition,
+    void* user_data);
 
-/* Stall modes */
-typedef enum nci_stall {
-    NCI_STALL_STOP,
-    NCI_STALL_ERROR
-} NCI_STALL;
+NciTransition*
+nci_transition_ref(
+    NciTransition* transition);
 
-/* Debug log */
-#define DIR_IN  '>'
-#define DIR_OUT '<'
+void
+nci_transition_unref(
+    NciTransition* transition);
 
-/* Message Type (MT) */
-#define NCI_MT_MASK     (0xe0)
-#define NCI_MT_DATA_PKT (0x00)
-#define NCI_MT_CMD_PKT  (0x20)
-#define NCI_MT_RSP_PKT  (0x40)
-#define NCI_MT_NTF_PKT  (0x60)
+gboolean
+nci_transition_start(
+    NciTransition* self);
 
-/* Packet Boundary Flag (PBF) */
-#define NCI_PBF         (0x10)
+void
+nci_transition_finished(
+    NciTransition* self);
 
-#endif /* NCI_TYPES_PRIVATE_H */
+void
+nci_transition_handle_ntf(
+    NciTransition* transition,
+    guint8 gid,
+    guint8 oid,
+    const GUtilData* payload);
+
+/* Specific transitions */
+
+NciTransition* 
+nci_transition_reset_new(
+    NciSm* sm);
+
+NciTransition* 
+nci_transition_idle_to_discovery_new(
+    NciSm* sm);
+
+NciTransition* 
+nci_transition_deactivate_to_idle_new(
+    NciSm* sm);
+
+NciTransition* 
+nci_transition_poll_active_to_discovery_new(
+    NciSm* sm);
+
+NciTransition* 
+nci_transition_poll_active_to_idle_new(
+    NciSm* sm);
+
+#endif /* NCI_TRANSITION_H */
 
 /*
  * Local Variables:
