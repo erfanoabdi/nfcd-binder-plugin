@@ -120,9 +120,9 @@ typedef enum nci_rf_interface {
 typedef struct nci_mode_param_poll_a {
     guint8 sens_res[2];
     guint8 nfcid1_len;
+    guint8 nfcid1[10];
     guint8 sel_res_len;
     guint8 sel_res;
-    const guint8* nfcid1;
 } NciModeParamPollA;
 
 typedef union nci_mode_param {

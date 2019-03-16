@@ -61,15 +61,15 @@ nci_parse_mode_param(
              * | 4 + n  | m    | SEL_RES Response (0 or 1 Octet)         |
              * +=========================================================+
              */
+            memset(param, 0, sizeof(*param));
             ppa->sens_res[0] = bytes[0];
             ppa->sens_res[1] = bytes[1];
             ppa->nfcid1_len = bytes[2];
-            if (len >= ppa->nfcid1_len + 4 &&
+            if (ppa->nfcid1_len <= 10 &&
+                len >= ppa->nfcid1_len + 4 &&
                 len >= ppa->nfcid1_len + 4 +
                 bytes[ppa->nfcid1_len + 3]) {
-                if (ppa->nfcid1_len) {
-                    ppa->nfcid1 = bytes + 3;
-                }
+                memcpy(ppa->nfcid1, bytes + 3, ppa->nfcid1_len);
                 ppa->sel_res_len = bytes[ppa->nfcid1_len + 3];
                 if (ppa->sel_res_len) {
                     ppa->sel_res = bytes[ppa->nfcid1_len + 4];
@@ -156,7 +156,6 @@ nci_parse_discover_ntf(
 #endif /* GUTIL_LOG_DEBUG */
 
             if (ntf->param_bytes && param) {
-                memset(param, 0, sizeof(*param));
                 ntf->param = nci_parse_mode_param(param, ntf->mode,
                     ntf->param_bytes, n);
             } else {
@@ -380,10 +379,8 @@ nci_parse_intf_activated_ntf(
 
             /* Require RF Tech Parameters */
             if (ntf->mode_param_bytes) {
-                memset(mode_param, 0, sizeof(*mode_param));
                 ntf->mode_param = nci_parse_mode_param(mode_param, ntf->mode,
                     ntf->mode_param_bytes, n);
-
                 if (act_param_bytes) {
                     memset(activation_param, 0, sizeof(*activation_param));
                     ntf->activation_param_len = m;
@@ -434,26 +431,15 @@ nci_discovery_ntf_copy_array(
 
             *dest = *src;
             if (src->param_len) {
-                const gssize diff = ptr - ((guint8*)src->param_bytes);
-
                 dest->param_bytes = ptr;
                 memcpy(ptr, src->param_bytes, src->param_len);
                 ptr += G_ALIGN8(src->param_len);
                 if (src->param) {
                     NciModeParam* dest_param = (NciModeParam*)ptr;
 
-                    ptr += G_ALIGN8(sizeof(*src->param));
-                    dest->param = dest_param;
                     *dest_param = *src->param;
-                    switch (src->mode) {
-                    case NCI_MODE_ACTIVE_POLL_A:
-                    case NCI_MODE_PASSIVE_POLL_A:
-                        dest_param->poll_a.nfcid1 += diff;
-                        break;
-                    default:
-                        GDEBUG("Unhandled activation mode %d", src->mode);
-                        break;
-                    }
+                    dest->param = dest_param;
+                    ptr += G_ALIGN8(sizeof(*src->param));
                 }
             }
         }

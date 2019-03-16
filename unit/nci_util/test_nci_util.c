@@ -91,14 +91,14 @@ static const TestModeParamSuccessData mode_param_success_tests[] = {
         .name = "no_nfcid1",
         .mode = NCI_MODE_ACTIVE_POLL_A,
         .data = { TEST_ARRAY_AND_SIZE(mode_param_success_data_no_nfcid1) },
-        .expected = { .poll_a = { { 0x04, 0x00 }, 0, 1, 0x20 } }
+        .expected = { .poll_a = { { 0x04, 0x00 }, 0, { 0 }, 1, 0x20 } }
     },{
         .name = "full",
         .mode = NCI_MODE_ACTIVE_POLL_A,
         .data = { TEST_ARRAY_AND_SIZE(mode_param_success_data_full) },
         .expected = {
-            .poll_a = { { 0x04, 0x00 }, 4, 1, 0x20,
-                        mode_param_success_data_full + 3 } }
+            .poll_a = { {0x04, 0x00}, 4, {0x37, 0xf4, 0x95, 0x95}, 1, 0x20 }
+        }
     }
 };
 
@@ -130,6 +130,9 @@ static const guint8 mode_param_fail_data_too_short_2[] =
     { 0x04, 0x00, 0x04, 0x37, 0xf4 };
 static const guint8 mode_param_fail_data_too_short_3[] =
     { 0x04, 0x00, 0x04, 0x37, 0xf4, 0x95, 0x95, 0x01 };
+static const guint8 mode_param_fail_data_too_long[] =
+    { 0x04, 0x00, 0x0b /* exceeds max 10 */, 0x01, 0x02, 0x03,
+      0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x01, 0x20 };
 static const TestModeParamFailData mode_param_fail_tests[] = {
     {
         .name = "unhandled_mode",
@@ -150,6 +153,10 @@ static const TestModeParamFailData mode_param_fail_tests[] = {
         .name = "too_short/3",
         .mode = NCI_MODE_ACTIVE_POLL_A,
         .data = { TEST_ARRAY_AND_SIZE(mode_param_fail_data_too_short_3) }
+    },{
+        .name = "too_long",
+        .mode = NCI_MODE_ACTIVE_POLL_A,
+        .data = { TEST_ARRAY_AND_SIZE(mode_param_fail_data_too_long) }
     }
 };
 
@@ -179,16 +186,14 @@ test_discover_success(
 
 static const guint8 discover_success_data_no_param[] =
     { 0x01, 0x04, 0x00, 0x00, 0x02 };
-static const guint8 discover_success_data_full_1[];
 static const NciModeParam discover_success_data_full_1_param = {
-    .poll_a = { {0x04, 0x00}, 4, 1, 0x20, discover_success_data_full_1 + 7 }
+    .poll_a = { {0x04, 0x00}, 4, { 0x4f, 0x01, 0x74, 0x01 }, 1, 0x20 }
 };
 static const guint8 discover_success_data_full_1[] =
     { 0x01, 0x04, 0x00, 0x09, 0x04, 0x00, 0x04, 0x4f,
       0x01, 0x74, 0x01, 0x01, 0x20, 0x02 };
-static const guint8 discover_success_data_full_2[];
 static const NciModeParam discover_success_data_full_2_param = {
-    .poll_a = { {0x04, 0x00}, 4, 1, 0x08, discover_success_data_full_2 + 7 }
+    .poll_a = { {0x04, 0x00}, 4, { 0x4f, 0x01, 0x74, 0x01 }, 1, 0x08 }
 };
 static const guint8 discover_success_data_full_2[] =
     { 0x02, 0x80, 0x00, 0x09, 0x04, 0x00, 0x04, 0x4f,
