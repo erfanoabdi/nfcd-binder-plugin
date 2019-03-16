@@ -37,14 +37,6 @@
 
 #include "nci_state.h"
 
-NciSm*
-nci_state_sm(
-    NciState* state);
-
-NciSar*
-nci_state_sar(
-    NciState* state);
-
 NciTransition*
 nci_state_get_transition(
     NciState* state,
@@ -100,6 +92,14 @@ nci_state_discovery_new(
 
 NciState* /* NCI_RFST_POLL_ACTIVE */
 nci_state_poll_active_new(
+    NciSm* sm);
+
+NciState* /* NCI_RFST_W4_ALL_DISCOVERIES */
+nci_state_w4_all_discoveries_new(
+    NciSm* sm);
+
+NciState* /* NCI_RFST_W4_HOST_SELECT */
+nci_state_w4_host_select_new(
     NciSm* sm);
 
 #endif /* NCI_STATE_PRIVATE_H */

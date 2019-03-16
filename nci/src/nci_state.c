@@ -195,13 +195,6 @@ nci_state_sm(
     return G_LIKELY(self) ? self->priv->sm : NULL; 
 }
 
-NciSar*
-nci_state_sar(
-    NciState* self)
-{
-    return nci_sm_sar(nci_state_sm(self));
-}
-
 void
 nci_state_add_transition(
     NciState* self,
@@ -279,9 +272,9 @@ static
 void
 nci_state_default_enter(
     NciState* self,
-    void* param)
+    NciParam* param)
 {
-    GDEBUG("Entered %s state", self->name);
+    GVERBOSE("Entered %s state", self->name);
     self->active = TRUE;
 }
 
@@ -289,9 +282,9 @@ static
 void
 nci_state_default_reenter(
     NciState* self,
-    void* param)
+    NciParam* param)
 {
-    GDEBUG("Re-entered %s state", self->name);
+    GVERBOSE("Re-entered %s state", self->name);
     GASSERT(self->active);
 }
 

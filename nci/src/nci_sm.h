@@ -277,7 +277,7 @@ NciState*
 nci_sm_enter_state(
     NciSm* sm,
     NCI_STATE state,
-    void* param);
+    NciParam* param);
 
 void
 nci_sm_switch_to(
@@ -367,6 +367,11 @@ nci_sm_get_state(
 NciSar*
 nci_sm_sar(
     NciSm* sm);
+
+gboolean
+nci_sm_supports_protocol(
+    NciSm* sm,
+    NCI_PROTOCOL protocol);
 
 gboolean
 nci_sm_active_transition(

@@ -31,7 +31,6 @@
  */
 
 #include "nci_sm.h"
-#include "nci_state_p.h"
 #include "nci_state_impl.h"
 #include "nci_log.h"
 
@@ -41,6 +40,57 @@ typedef NciStateClass NciStatePollActiveClass;
 G_DEFINE_TYPE(NciStatePollActive, nci_state_poll_active, NCI_TYPE_STATE)
 #define THIS_TYPE (nci_state_poll_active_get_type())
 #define PARENT_CLASS (nci_state_poll_active_parent_class)
+
+/*==========================================================================*
+ * Implementation
+ *==========================================================================*/
+
+static
+gboolean
+nci_state_poll_active_interface_error_ntf(
+    NciState* self,
+    const GUtilData* payload)
+{
+    const guint8* pkt = payload->bytes;
+    const guint len = payload->size;
+
+    /*
+     * Table 19: Control Messages for Interface Error
+     *
+     * CORE_INTERFACE_ERROR_NTF
+     *
+     * +=========================================================+
+     * | Offset | Size | Description                             |
+     * +=========================================================+
+     * | 0      | 1    | Status                                  |
+     * | 1      | 1    | Conn ID                                 |
+     * +=========================================================+
+     *
+     * 5.2.5 State RFST_POLL_ACTIVE
+     *
+     * ...
+     * When using the ISO-DEP or NFC-DEP RF interface, and the NFCC
+     * detects an error during the RF communication, it SHALL notify
+     * the DH sending CORE_INTERFACE_ERROR_NTF, using the appropriate
+     * status out of RF_TRANSMISSION_ERROR, RF_PROTOCOL_ERROR and
+     * RF_TIMEOUT_ERROR. The state will then remain RFST_POLL_ACTIVE.
+     */
+    if (len == 2) {
+        switch (pkt[0]) {
+        case NCI_RF_TRANSMISSION_ERROR:
+            GDEBUG("CORE_INTERFACE_ERROR_NTF (Transmission Error)");
+            return TRUE;
+        case NCI_RF_PROTOCOL_ERROR:
+            GDEBUG("CORE_INTERFACE_ERROR_NTF (Protocol Error)");
+            return TRUE;
+        case NCI_RF_TIMEOUT_ERROR:
+            GDEBUG("CORE_INTERFACE_ERROR_NTF (Timeout)");
+            return TRUE;
+        }
+    }
+    /* Unrecornized notification */
+    return FALSE;
+}
 
 /*==========================================================================*
  * Interface
@@ -69,6 +119,15 @@ nci_state_poll_active_handle_ntf(
     const GUtilData* payload)
 {
     switch (gid) {
+    case NCI_GID_CORE:
+        switch (oid) {
+        case NCI_OID_CORE_INTERFACE_ERROR:
+            if (nci_state_poll_active_interface_error_ntf(state, payload)) {
+                return;
+            }
+            break;
+        }
+        break;
     case NCI_GID_RF:
         switch (oid) {
         case NCI_OID_RF_DEACTIVATE:

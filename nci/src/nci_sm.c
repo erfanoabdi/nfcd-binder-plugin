@@ -32,6 +32,7 @@
 
 #include "nci_sm.h"
 #include "nci_sar.h"
+#include "nci_param.h"
 #include "nci_state_p.h"
 #include "nci_transition.h"
 #include "nci_log.h"
@@ -77,8 +78,8 @@ G_DEFINE_TYPE(NciSmObject, nci_sm_object, G_TYPE_OBJECT)
         NCI_TYPE_SM, NciSmObjectClass)
 
 typedef enum nci_sm_signal {
-    SIGNAL_LAST_STATE,
     SIGNAL_NEXT_STATE,
+    SIGNAL_LAST_STATE,
     SIGNAL_INTF_ACTIVATED,
     SIGNAL_COUNT
 } NCI_SM_SIGNAL;
@@ -294,7 +295,7 @@ void
 nci_sm_enter_state_internal(
     NciSmObject* self,
     NciState* state,
-    void* param)
+    NciParam* param)
 {
     NciTransition* next_transition;
 
@@ -391,7 +392,7 @@ NciState*
 nci_sm_enter_state(
     NciSm* sm,
     NCI_STATE id,
-    void* param)
+    NciParam* param)
 {
     NciSmObject* self = nci_sm_object(sm);
 
@@ -405,7 +406,9 @@ nci_sm_enter_state(
             if (state_ptr) {
                 NciState* state = NCI_STATE(state_ptr);
 
+                nci_param_ref(param);
                 nci_sm_enter_state_internal(self, state, param);
+                nci_param_unref(param);
                 return state;
             }
         }
@@ -509,6 +512,7 @@ nci_sm_new(
 {
     NciSmObject* self = g_object_new(NCI_TYPE_SM, NULL);
     NciSm* sm = &self->sm;
+    NciTransition* deactivate_to_idle;
 
     sm->io = io;
 
@@ -516,6 +520,8 @@ nci_sm_new(
     nci_sm_add_new_state(sm, nci_state_idle_new);
     nci_sm_add_new_state(sm, nci_state_discovery_new);
     nci_sm_add_new_state(sm, nci_state_poll_active_new);
+    nci_sm_add_new_state(sm, nci_state_w4_all_discoveries_new);
+    nci_sm_add_new_state(sm, nci_state_w4_host_select_new);
 
     /*
      * Reset transition could be added to the internal states, i.e.
@@ -529,10 +535,14 @@ nci_sm_new(
     self->reset_transition = nci_transition_reset_new(sm);
 
     /* Set up the transitions */
+    deactivate_to_idle = nci_transition_deactivate_to_idle_new(sm);
+    nci_sm_add_transition(sm, NCI_RFST_DISCOVERY, deactivate_to_idle);
+    nci_sm_add_transition(sm, NCI_RFST_W4_ALL_DISCOVERIES, deactivate_to_idle);
+    nci_sm_add_transition(sm, NCI_RFST_W4_HOST_SELECT, deactivate_to_idle);
+    nci_transition_unref(deactivate_to_idle);
+
     nci_sm_add_new_transition(sm,
         NCI_RFST_IDLE, nci_transition_idle_to_discovery_new);
-    nci_sm_add_new_transition(sm,
-        NCI_RFST_DISCOVERY, nci_transition_deactivate_to_idle_new);
     nci_sm_add_new_transition(sm,
         NCI_RFST_POLL_ACTIVE, nci_transition_poll_active_to_discovery_new);
     nci_sm_add_new_transition(sm,
@@ -716,6 +726,24 @@ nci_sm_remove_weak_pointer(
 }
 
 gboolean
+nci_sm_supports_protocol(
+    NciSm* sm,
+    NCI_PROTOCOL protocol)
+{
+    switch (protocol) {
+    case NCI_PROTOCOL_T2T:
+    case NCI_PROTOCOL_ISO_DEP:
+        return TRUE;
+    case NCI_PROTOCOL_UNDETERMINED:
+    case NCI_PROTOCOL_T1T:
+    case NCI_PROTOCOL_T3T:
+    case NCI_PROTOCOL_NFC_DEP:
+        break;
+    }
+    return FALSE;
+}
+
+gboolean
 nci_sm_active_transition(
     NciSm* sm,
     NciTransition* transition)
@@ -788,6 +816,8 @@ nci_sm_intf_activated(
     NciSmObject* self = nci_sm_object(sm);
 
     if (G_LIKELY(self)) {
+        nci_sar_set_initial_credits(nci_sm_sar(sm), NCI_STATIC_RF_CONN_ID,
+            ntf->num_credits);
         g_signal_emit(self, nci_sm_signals[SIGNAL_INTF_ACTIVATED], 0, ntf);
     }
 }

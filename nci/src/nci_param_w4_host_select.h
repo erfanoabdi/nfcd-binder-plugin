@@ -30,51 +30,31 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NCI_STATE_IMPL_H
-#define NCI_STATE_IMPL_H
+#ifndef NCI_PARAM_W4_HOST_SELECT_H
+#define NCI_PARAM_W4_HOST_SELECT_H
 
-#include "nci_state.h"
-#include "nci_types_p.h"
+#include "nci_param.h"
 
-/* Internal API for use by NciState implemenations */
+typedef struct nci_param_w4_host_select {
+    NciParam param;
+    NciDiscoveryNtf* ntf;
+    guint count;
+} NciParamW4HostSelect;
 
-typedef struct nci_state_class {
-    GObjectClass parent;
-    void (*enter)(NciState* state, NciParam* param);
-    void (*reenter)(NciState* state, NciParam* param);
-    void (*leave)(NciState* state);
-    void (*handle_ntf)(NciState* state, guint8 gid, guint8 oid,
-        const GUtilData* payload);
-} NciStateClass;
+GType nci_param_w4_host_select_get_type(void);
+#define NCI_TYPE_PARAM_W4_HOST_SELECT \
+        nci_param_w4_host_select_get_type()
+#define NCI_IS_PARAM_W4_HOST_SELECT(obj) G_TYPE_CHECK_INSTANCE_TYPE((obj),\
+        NCI_TYPE_PARAM_W4_HOST_SELECT)
+#define NCI_PARAM_W4_HOST_SELECT(obj) G_TYPE_CHECK_INSTANCE_CAST((obj), \
+        NCI_TYPE_PARAM_W4_HOST_SELECT, NciParamW4HostSelect)
 
-#define NCI_STATE_CLASS(klass) G_TYPE_CHECK_CLASS_CAST((klass), \
-        NCI_TYPE_STATE, NciStateClass)
+NciParamW4HostSelect*
+nci_param_w4_host_select_new(
+    const NciDiscoveryNtf* const* ntfs,
+    guint count);
 
-void
-nci_state_init_base(
-    NciState* state,
-    NciSm* sm,
-    NCI_STATE id,
-    const char* name);
-
-gboolean
-nci_state_send_command(
-    NciState* state,
-    guint8 gid,
-    guint8 oid,
-    GBytes* payload,
-    NciSmResponseFunc resp,
-    gpointer user_data);
-
-void
-nci_state_error(
-    NciState* state);
-
-NciSm*
-nci_state_sm(
-    NciState* state);
-
-#endif /* NCI_STATE_IMPL_H */
+#endif /* NCI_PARAM_W4_HOST_SELECT_H */
 
 /*
  * Local Variables:

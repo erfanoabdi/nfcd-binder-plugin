@@ -158,6 +158,17 @@ typedef struct nci_intf_activated_ntf {
     const NciActivationParam* activation_param;
 } NciIntfActivationNtf;
 
+/* Table 52: Control Messages to Start Discovery */
+typedef struct nci_discovery_ntf {
+    guint8 discovery_id;
+    NCI_PROTOCOL protocol;
+    NCI_MODE mode;
+    guint8 param_len;
+    const void* param_bytes;
+    const NciModeParam* param;
+    gboolean last;
+} NciDiscoveryNtf;
+
 /* NCI states */
 
 typedef enum nci_state_id {

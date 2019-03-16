@@ -30,51 +30,43 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NCI_STATE_IMPL_H
-#define NCI_STATE_IMPL_H
+#ifndef NCI_UTIL_H
+#define NCI_UTIL_H
 
-#include "nci_state.h"
 #include "nci_types_p.h"
 
-/* Internal API for use by NciState implemenations */
-
-typedef struct nci_state_class {
-    GObjectClass parent;
-    void (*enter)(NciState* state, NciParam* param);
-    void (*reenter)(NciState* state, NciParam* param);
-    void (*leave)(NciState* state);
-    void (*handle_ntf)(NciState* state, guint8 gid, guint8 oid,
-        const GUtilData* payload);
-} NciStateClass;
-
-#define NCI_STATE_CLASS(klass) G_TYPE_CHECK_CLASS_CAST((klass), \
-        NCI_TYPE_STATE, NciStateClass)
-
-void
-nci_state_init_base(
-    NciState* state,
-    NciSm* sm,
-    NCI_STATE id,
-    const char* name);
+const NciModeParam*
+nci_parse_mode_param(
+    NciModeParam* param,
+    NCI_MODE mode,
+    const guint8* bytes,
+    guint len);
 
 gboolean
-nci_state_send_command(
-    NciState* state,
-    guint8 gid,
-    guint8 oid,
-    GBytes* payload,
-    NciSmResponseFunc resp,
-    gpointer user_data);
+nci_parse_discover_ntf(
+    NciDiscoveryNtf* ntf,
+    NciModeParam* param,
+    const guint8* bytes,
+    guint len);
 
-void
-nci_state_error(
-    NciState* state);
+gboolean
+nci_parse_intf_activated_ntf(
+    NciIntfActivationNtf* ntf,
+    NciModeParam* mode_param,
+    NciActivationParam* activation_param,
+    const guint8* pkt,
+    guint len);
 
-NciSm*
-nci_state_sm(
-    NciState* state);
+NciDiscoveryNtf*
+nci_discovery_ntf_copy_array(
+    const NciDiscoveryNtf* const* ntfs,
+    guint count);
 
-#endif /* NCI_STATE_IMPL_H */
+NciDiscoveryNtf*
+nci_discovery_ntf_copy(
+    const NciDiscoveryNtf* ntf);
+
+#endif /* NCI_UTIL_H */
 
 /*
  * Local Variables:

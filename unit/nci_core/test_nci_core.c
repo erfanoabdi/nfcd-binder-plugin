@@ -34,6 +34,7 @@
 
 #include "nci_core.h"
 #include "nci_hal.h"
+#include "nci_sm.h"
 
 #include <gutil_macros.h>
 #include <gutil_log.h>
@@ -67,6 +68,12 @@ static const guint8 CORE_INIT_RSP[] = {
     0x08, 0x00, 0x01, 0x02, 0x03, 0x80, 0x82, 0x83,
     0x84, 0x02, 0x5c, 0x03, 0xff, 0x02, 0x00, 0x04,
     0x41, 0x11, 0x01, 0x18
+};
+static const guint8 CORE_INIT_RSP_1[] = {
+    0x40, 0x01, 0x19, 0x00, 0x03, 0x0e, 0x02, 0x00,
+    0x08, 0x00, 0x01, 0x02, 0x03, 0x80, 0x82, 0x83,
+    0x84, 0x02, 0x5c, 0x03, 0xff, 0x02, 0x00, 0x04,
+    0x41, 0x11, 0x01, 0x1a
 };
 static const guint8 CORE_INIT_V2_RSP[] = {
     0x40, 0x01, 0x18, 0x00, 0x1a, 0x7e, 0x06, 0x00,
@@ -152,6 +159,13 @@ static const guint8 RF_INTF_ACTIVATED_NTF_T2[] = {
     0x4a, 0xeb, 0x2b, 0x80, 0x01, 0x00, 0x00, 0x00,
     0x00, 0x00
 };
+static const guint8 RF_INTF_ACTIVATED_NTF_ISO_DEP[] = {
+    0x61, 0x05, 0x1f, 0x01, 0x02, 0x04, 0x00, 0xff,
+    0x01, 0x09, 0x04, 0x00, 0x04, 0x4f, 0x01, 0x74,
+    0x01, 0x01, 0x20, 0x00, 0x00, 0x00, 0x0b, 0x0a,
+    0x78, 0x80, 0x81, 0x02, 0x4b, 0x4f, 0x4e, 0x41,
+    0x14, 0x11
+};
 static const guint8 RF_INTF_ACTIVATED_NTF_T2_BROKEN1[] = {
     0x61, 0x05, 0x05 /* Too short */, 0x01, 0x01, 0x02, 0x00, 0xff
 };
@@ -212,9 +226,12 @@ static const guint8 RF_DEACTIVATE_NTF_BROKEN[] = {
     0x61, 0x06, 0x00
 };
 static const guint8 CORE_GENERIC_ERROR_NTF[] = {
-    0x60, 0x07, 0x01, 0x00
+    0x60, 0x07, 0x01, NCI_STATUS_FAILED
 };
-static const guint8 CORE_GENERIC_ERROR_BROKEN_NTF[] = {
+static const guint8 CORE_GENERIC_TARGET_ACTIVATION_FAILED_ERROR_NTF[] = {
+    0x60, 0x07, 0x01, NCI_DISCOVERY_TARGET_ACTIVATION_FAILED
+};
+static const guint8 CORE_GENERIC_ERROR_NTF_BROKEN[] = {
     0x60, 0x07, 0x00
 };
 static const guint8 CORE_CONN_CREDITS_NTF[] = {
@@ -226,14 +243,52 @@ static const guint8 CORE_CONN_CREDITS_BROKEN1_NTF[] = {
 static const guint8 CORE_CONN_CREDITS_BROKEN2_NTF[] = {
     0x60, 0x06, 0x02, 0x01, 0x00
 };
+static const guint8 CORE_INTERFACE_GENERIC_ERROR_NTF[] = {
+    0x60, 0x08, 0x02, NCI_STATUS_FAILED, 0x00
+};
+static const guint8 CORE_INTERFACE_TRANSMISSION_ERROR_NTF[] = {
+    0x60, 0x08, 0x02, NCI_RF_TRANSMISSION_ERROR, 0x00
+};
+static const guint8 CORE_INTERFACE_PROTOCOL_ERROR_NTF[] = {
+    0x60, 0x08, 0x02, NCI_RF_PROTOCOL_ERROR, 0x00
+};
+static const guint8 CORE_INTERFACE_TIMEOUT_ERROR_NTF[] = {
+    0x60, 0x08, 0x02, NCI_RF_TIMEOUT_ERROR, 0x00
+};
+static const guint8 CORE_INTERFACE_ERROR_NTF_BROKEN[] = {
+    0x60, 0x08, 0x01, NCI_STATUS_FAILED
+};
 static const guint8 CORE_IGNORED_NTF[] = {
-    0x60, 0x0f, 0x00
+    0x60, 0x33, 0x00
 };
 static const guint8 RF_IGNORED_NTF[] = {
-    0x61, 0x0f, 0x00
+    0x61, 0x33, 0x00
 };
 static const guint8 NFCEE_IGNORED_NTF[] = {
-    0x62, 0x0f, 0x00
+    0x62, 0x33, 0x00
+};
+static const guint8 RF_DISCOVER_NTF_1_ISO_DEP[] = {
+    0x61, 0x03, 0x0e, 0x01, 0x04, 0x00, 0x09, 0x04,
+    0x00, 0x04, 0x4f, 0x01, 0x74, 0x01, 0x01, 0x20,
+    0x02
+};
+static const guint8 RF_DISCOVER_NTF_2_T2T[] = {
+    0x61, 0x03, 0x0e, 0x02, 0x02, 0x00, 0x09, 0x04,
+    0x00, 0x04, 0x4f, 0x01, 0x74, 0x01, 0x01, 0x08,
+    0x02
+};
+static const guint8 RF_DISCOVER_NTF_2_PROPRIETARY_LAST[] = {
+    0x61, 0x03, 0x0e, 0x02, 0x80, 0x00, 0x09, 0x04,
+    0x00, 0x04, 0x4f, 0x01, 0x74, 0x01, 0x01, 0x08,
+    0x00
+};
+static const guint8 RF_DISCOVER_NTF_3_PROPRIETARY_LAST[] = {
+    0x61, 0x03, 0x0e, 0x03, 0x81, 0x00, 0x09, 0x04,
+    0x00, 0x04, 0x4f, 0x01, 0x74, 0x01, 0x01, 0x08,
+    0x00
+};
+static const guint8 RF_DISCOVER_SELECT_RSP[] = {
+    0x41, 0x04, 0x01, 0x00
 };
 
 static
@@ -725,7 +780,7 @@ test_init_ok(
     nci_core_set_state(nci, NCI_RFST_IDLE);
     nci_core_set_state(nci, NCI_RFST_IDLE);
     /* Couple of error notifications (ignored) */
-    test_hal_io_queue_ntf(hal, CORE_GENERIC_ERROR_BROKEN_NTF);
+    test_hal_io_queue_ntf(hal, CORE_GENERIC_ERROR_NTF_BROKEN);
     test_hal_io_queue_ntf(hal, CORE_GENERIC_ERROR_NTF);
     /* Responses */
     test_hal_io_queue_rsp(hal, CORE_RESET_RSP);
@@ -739,7 +794,7 @@ test_init_ok(
     /* And a valid notification */
     test_hal_io_queue_ntf(hal, CORE_CONN_CREDITS_NTF);
     /* Two more error notifications (ignored) */
-    test_hal_io_queue_ntf(hal, CORE_GENERIC_ERROR_BROKEN_NTF);
+    test_hal_io_queue_ntf(hal, CORE_GENERIC_ERROR_NTF_BROKEN);
     test_hal_io_queue_ntf(hal, CORE_GENERIC_ERROR_NTF);
 
     id = nci_core_add_current_state_changed_handler(nci,
@@ -1808,6 +1863,15 @@ static const TestSmEntry test_nci_sm_dscvr_poll_deact_t4a[] = {
         NCI_PROTOCOL_ISO_DEP, NCI_MODE_PASSIVE_POLL_A),
     TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
 
+    /* Make sure these notifications don't change the state */
+    TEST_NCI_SM_QUEUE_NTF(RF_IGNORED_NTF),                   /* Ignored */
+    TEST_NCI_SM_QUEUE_NTF(CORE_INTERFACE_ERROR_NTF_BROKEN),  /* Ignored */
+    TEST_NCI_SM_QUEUE_NTF(CORE_INTERFACE_GENERIC_ERROR_NTF), /* Ignored */
+    TEST_NCI_SM_QUEUE_NTF(CORE_INTERFACE_TRANSMISSION_ERROR_NTF),
+    TEST_NCI_SM_QUEUE_NTF(CORE_INTERFACE_PROTOCOL_ERROR_NTF),
+    TEST_NCI_SM_QUEUE_NTF(CORE_INTERFACE_TIMEOUT_ERROR_NTF),
+    TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
+
     /* Deactivate to IDLE */
     TEST_NCI_SM_SET_STATE(NCI_RFST_IDLE),
     TEST_NCI_SM_ASSERT_STATES(NCI_RFST_POLL_ACTIVE, NCI_RFST_IDLE),
@@ -1942,6 +2006,70 @@ static const TestSmEntry test_nci_sm_dscvr_poll_deact_t4a_badparam2[] = {
     TEST_NCI_SM_END()
 };
 
+static const TestSmEntry test_nci_sm_discovery_ntf_t2t[] = {
+    TEST_NCI_SM_QUEUE_RSP(CORE_RESET_RSP),
+    TEST_NCI_SM_QUEUE_RSP(CORE_INIT_RSP_1),
+    TEST_NCI_SM_QUEUE_RSP(CORE_GET_CONFIG_RSP),
+
+    /* Switch state machine to DISCOVERY state */
+    TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_MAP_RSP),
+    TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_RSP),
+    TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
+    TEST_NCI_SM_WAIT_STATE(NCI_RFST_DISCOVERY),
+
+    /* Receive 3 discovery notifications (T2T, ISO-DEP, Proprietary) */
+    TEST_NCI_SM_QUEUE_NTF(RF_DISCOVER_NTF_1_ISO_DEP),
+    TEST_NCI_SM_WAIT_STATE(NCI_RFST_W4_ALL_DISCOVERIES),
+    TEST_NCI_SM_QUEUE_NTF(RF_DISCOVER_NTF_2_T2T),
+    TEST_NCI_SM_QUEUE_NTF(RF_DISCOVER_NTF_3_PROPRIETARY_LAST),
+    TEST_NCI_SM_WAIT_STATE(NCI_RFST_W4_HOST_SELECT),
+
+    /* Select Type 2 interface */
+    TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_SELECT_RSP),
+    TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_T2),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_FRAME,
+        NCI_PROTOCOL_T2T, NCI_MODE_PASSIVE_POLL_A),
+    TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
+    TEST_NCI_SM_END()
+};
+
+static const TestSmEntry test_nci_sm_discovery_ntf_iso_dep[] = {
+    TEST_NCI_SM_QUEUE_RSP(CORE_RESET_RSP),
+    TEST_NCI_SM_QUEUE_RSP(CORE_INIT_RSP_1),
+    TEST_NCI_SM_QUEUE_RSP(CORE_GET_CONFIG_RSP),
+
+    /* Switch state machine to DISCOVERY state */
+    TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_MAP_RSP),
+    TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_RSP),
+    TEST_NCI_SM_SET_STATE(NCI_RFST_DISCOVERY),
+    TEST_NCI_SM_WAIT_STATE(NCI_RFST_DISCOVERY),
+
+    /* Receive 2 discovery notifications (ISO-DEP, and Proprietary) */
+    TEST_NCI_SM_QUEUE_NTF(RF_DISCOVER_NTF_1_ISO_DEP),
+    TEST_NCI_SM_WAIT_STATE(NCI_RFST_W4_ALL_DISCOVERIES),
+    TEST_NCI_SM_QUEUE_NTF(RF_DISCOVER_NTF_2_PROPRIETARY_LAST),
+    TEST_NCI_SM_WAIT_STATE(NCI_RFST_W4_HOST_SELECT),
+
+    /* Make sure these notifications don't change the state */
+    TEST_NCI_SM_QUEUE_NTF(RF_IGNORED_NTF),                   /* Ignored */
+    TEST_NCI_SM_QUEUE_NTF(CORE_IGNORED_NTF),                 /* Ignored */
+    TEST_NCI_SM_QUEUE_NTF(NFCEE_IGNORED_NTF),                /* Ignored */
+    TEST_NCI_SM_QUEUE_NTF(CORE_GENERIC_ERROR_NTF),           /* Ignored */
+    TEST_NCI_SM_QUEUE_NTF(CORE_GENERIC_ERROR_NTF_BROKEN),    /* Ignored */
+    TEST_NCI_SM_QUEUE_NTF(CORE_GENERIC_TARGET_ACTIVATION_FAILED_ERROR_NTF),
+    TEST_NCI_SM_WAIT_STATE(NCI_RFST_W4_HOST_SELECT),
+
+    /* Select ISO-DEP interface */
+    TEST_NCI_SM_QUEUE_RSP(RF_DISCOVER_SELECT_RSP),
+    TEST_NCI_SM_QUEUE_NTF(CORE_IGNORED_NTF),  /* Ignored */
+    TEST_NCI_SM_QUEUE_NTF(RF_IGNORED_NTF),    /* Ignored */
+    TEST_NCI_SM_QUEUE_NTF(RF_INTF_ACTIVATED_NTF_ISO_DEP),
+    TEST_NCI_SM_WAIT_ACTIVATION(NCI_RF_INTERFACE_ISO_DEP,
+        NCI_PROTOCOL_ISO_DEP, NCI_MODE_PASSIVE_POLL_A),
+    TEST_NCI_SM_WAIT_STATE(NCI_RFST_POLL_ACTIVE),
+    TEST_NCI_SM_END()
+};
+
 const const TestNciSmData nci_sm_tests[] = {
     { "init-twice", test_nci_sm_init_twice },
     { "init-timeout", test_nci_sm_init_timeout },
@@ -1988,8 +2116,8 @@ const const TestNciSmData nci_sm_tests[] = {
     { "discovery-poll-activate-error4",  test_nci_sm_dscvr_poll_act_error4 },
     { "discovery-poll-deactivate-t4a-bad-act-param1",
       test_nci_sm_dscvr_poll_deact_t4a_badparam1 },
-    { "discovery-poll-deactivate-t4a-bad-act-param2",
-      test_nci_sm_dscvr_poll_deact_t4a_badparam2 }
+    { "discovery-ntf-t2t", test_nci_sm_discovery_ntf_t2t },
+    { "discovery-ntf-isodep", test_nci_sm_discovery_ntf_iso_dep }
 };
 
 /*==========================================================================*

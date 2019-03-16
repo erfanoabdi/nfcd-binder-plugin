@@ -162,8 +162,21 @@ nci_core_command_completion(
     if (!success) {
         NciCoreObject* self = NCI_CORE(user_data);
 
-        GWARN("Command failed");
+        GWARN("Failed to send command %02x/%02x", self->rsp_gid, self->rsp_oid);
         nci_sm_stall(self->sm, NCI_STALL_ERROR);
+    }
+}
+
+static
+void
+nci_core_io_dummy_resp(
+    NCI_REQUEST_STATUS status,
+    const GUtilData* payload,
+    gpointer user_data)
+{
+    if (status != NCI_REQUEST_SUCCESS) {
+        GWARN("Command %02x/%02x failed", NCI_CORE(user_data)->rsp_gid,
+            NCI_CORE(user_data)->rsp_oid);
     }
 }
 
@@ -290,7 +303,7 @@ nci_core_data_packet_closure_cb(
     guint len,
     NciCoreDataPacketClosure* closure)
 {
-#pragma message("Use GUtilData")
+#pragma message("Use GUtilData for payload?")
     closure->func(&self->core, cid, payload, len, closure->user_data);
 }
 
@@ -353,8 +366,13 @@ nci_core_io_send(
 
     self->rsp_gid = gid;
     self->rsp_oid = oid;
-    self->rsp_handler = resp;
-    self->rsp_data = user_data;
+    if (resp) {
+        self->rsp_handler = resp;
+        self->rsp_data = user_data;
+    } else {
+        self->rsp_handler = nci_core_io_dummy_resp;
+        self->rsp_data = self;
+    }
     self->cmd_id = nci_sar_send_command(self->io.sar, gid, oid, payload,
         nci_core_command_completion, NULL, self);
     if (self->cmd_id) {

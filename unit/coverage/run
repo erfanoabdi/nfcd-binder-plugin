@@ -6,7 +6,8 @@
 TESTS="\
 nci_core \
 nci_sar \
-nci_sm"
+nci_sm \
+nci_util"
 
 function err() {
     echo "*** ERROR!" $1

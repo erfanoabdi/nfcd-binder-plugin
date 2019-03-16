@@ -30,51 +30,50 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NCI_STATE_IMPL_H
-#define NCI_STATE_IMPL_H
+#include "nci_param_impl.h"
 
-#include "nci_state.h"
-#include "nci_types_p.h"
+G_DEFINE_ABSTRACT_TYPE(NciParam, nci_param, G_TYPE_OBJECT)
 
-/* Internal API for use by NciState implemenations */
+/*==========================================================================*
+ * Interface
+ *==========================================================================*/
 
-typedef struct nci_state_class {
-    GObjectClass parent;
-    void (*enter)(NciState* state, NciParam* param);
-    void (*reenter)(NciState* state, NciParam* param);
-    void (*leave)(NciState* state);
-    void (*handle_ntf)(NciState* state, guint8 gid, guint8 oid,
-        const GUtilData* payload);
-} NciStateClass;
-
-#define NCI_STATE_CLASS(klass) G_TYPE_CHECK_CLASS_CAST((klass), \
-        NCI_TYPE_STATE, NciStateClass)
+NciParam*
+nci_param_ref(
+    NciParam* self)
+{
+    if (G_LIKELY(self)) {
+        g_object_ref(NCI_PARAM(self));
+    }
+    return self;
+}
 
 void
-nci_state_init_base(
-    NciState* state,
-    NciSm* sm,
-    NCI_STATE id,
-    const char* name);
+nci_param_unref(
+    NciParam* self)
+{
+    if (G_LIKELY(self)) {
+        g_object_unref(NCI_PARAM(self));
+    }
+}
 
-gboolean
-nci_state_send_command(
-    NciState* state,
-    guint8 gid,
-    guint8 oid,
-    GBytes* payload,
-    NciSmResponseFunc resp,
-    gpointer user_data);
+/*==========================================================================*
+ * Internals
+ *==========================================================================*/
 
+static
 void
-nci_state_error(
-    NciState* state);
+nci_param_init(
+    NciParam* self)
+{
+}
 
-NciSm*
-nci_state_sm(
-    NciState* state);
-
-#endif /* NCI_STATE_IMPL_H */
+static
+void
+nci_param_class_init(
+    NciParamClass* klass)
+{
+}
 
 /*
  * Local Variables:

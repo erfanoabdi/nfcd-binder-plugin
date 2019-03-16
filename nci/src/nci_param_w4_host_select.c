@@ -30,51 +30,59 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NCI_STATE_IMPL_H
-#define NCI_STATE_IMPL_H
+#include "nci_param_w4_host_select.h"
+#include "nci_param_impl.h"
+#include "nci_util.h"
 
-#include "nci_state.h"
-#include "nci_types_p.h"
+typedef NciParamClass NciParamW4HostSelectClass;
+G_DEFINE_TYPE(NciParamW4HostSelect, nci_param_w4_host_select, NCI_TYPE_PARAM)
 
-/* Internal API for use by NciState implemenations */
+/*==========================================================================*
+ * Interface
+ *==========================================================================*/
 
-typedef struct nci_state_class {
-    GObjectClass parent;
-    void (*enter)(NciState* state, NciParam* param);
-    void (*reenter)(NciState* state, NciParam* param);
-    void (*leave)(NciState* state);
-    void (*handle_ntf)(NciState* state, guint8 gid, guint8 oid,
-        const GUtilData* payload);
-} NciStateClass;
+NciParamW4HostSelect*
+nci_param_w4_host_select_new(
+    const NciDiscoveryNtf* const* ntf,
+    guint count)
+{
+    NciParamW4HostSelect* self =
+        g_object_new(NCI_TYPE_PARAM_W4_HOST_SELECT, NULL);
 
-#define NCI_STATE_CLASS(klass) G_TYPE_CHECK_CLASS_CAST((klass), \
-        NCI_TYPE_STATE, NciStateClass)
+    self->ntf = nci_discovery_ntf_copy_array(ntf, count);
+    self->count = count;
+    return self;
+}
 
+/*==========================================================================*
+ * Internals
+ *==========================================================================*/
+
+static
 void
-nci_state_init_base(
-    NciState* state,
-    NciSm* sm,
-    NCI_STATE id,
-    const char* name);
+nci_param_w4_host_select_init(
+    NciParamW4HostSelect* self)
+{
+}
 
-gboolean
-nci_state_send_command(
-    NciState* state,
-    guint8 gid,
-    guint8 oid,
-    GBytes* payload,
-    NciSmResponseFunc resp,
-    gpointer user_data);
-
+static
 void
-nci_state_error(
-    NciState* state);
+nci_param_w4_host_select_finalize(
+    GObject* obj)
+{
+    NciParamW4HostSelect* self = NCI_PARAM_W4_HOST_SELECT(obj);
 
-NciSm*
-nci_state_sm(
-    NciState* state);
+    g_free(self->ntf);
+    G_OBJECT_CLASS(nci_param_w4_host_select_parent_class)->finalize(obj);
+}
 
-#endif /* NCI_STATE_IMPL_H */
+static
+void
+nci_param_w4_host_select_class_init(
+    NciParamClass* klass)
+{
+    G_OBJECT_CLASS(klass)->finalize = nci_param_w4_host_select_finalize;
+}
 
 /*
  * Local Variables:

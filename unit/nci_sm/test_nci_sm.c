@@ -38,6 +38,7 @@
 #include "nci_state_p.h"
 #include "nci_state_impl.h"
 #include "nci_transition_impl.h"
+#include "nci_param_w4_all_discoveries.h"
 
 static TestOpt test_opt;
 
@@ -83,7 +84,7 @@ static
 void
 test_state_enter(
     NciState* state,
-    void* param)
+    NciParam* param)
 {
     TEST_STATE_OBJ(state)->entered++;
     NCI_STATE_CLASS(test_state_parent_class)->enter(state, param);
@@ -93,7 +94,7 @@ static
 void
 test_state_reenter(
     NciState* state,
-    void* param)
+    NciParam* param)
 {
     TEST_STATE_OBJ(state)->reentered++;
     NCI_STATE_CLASS(test_state_parent_class)->reenter(state, param);
@@ -226,6 +227,8 @@ test_null(
     NciSm* sm = nci_sm_new(NULL);
     NciSm* null = NULL;
     gulong zero = 0;
+
+    g_assert(!nci_param_w4_all_discoveries_new(NULL));
 
     nci_sm_free(null);
     nci_sm_handle_ntf(null, 0, 0, NULL);
@@ -375,7 +378,6 @@ test_add_state(
 
     g_assert(nci_sm_get_state(sm, TEST_STATE) == state);
     g_assert(nci_state_sm(state) == sm);
-    g_assert(!nci_state_sar(state));
     g_assert(!count);
 
     /* Switch to our test state */
