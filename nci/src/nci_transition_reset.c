@@ -49,6 +49,80 @@ G_DEFINE_TYPE(NciTransitionReset, nci_transition_reset, NCI_TYPE_TRANSITION)
 
 static
 void
+nci_transition_reset_set_config_rsp(
+    NCI_REQUEST_STATUS status,
+    const GUtilData* payload,
+    NciTransition* self)
+{
+    NciSm* sm = nci_transition_sm(self);
+
+    if (status == NCI_REQUEST_CANCELLED || !nci_transition_active(self)) {
+        GDEBUG("CORE_SET_CONFIG cancelled");
+        return;
+    } else if (status == NCI_REQUEST_TIMEOUT) {
+        GDEBUG("CORE_SET_CONFIG timed out");
+    } else if (sm) {
+        /*
+         * Table 10: Control Messages for Setting Configuration Parameters
+         *
+         * CORE_SET_CONFIG_RSP
+         *
+         * +=========================================================+
+         * | Offset | Size | Description                             |
+         * +=========================================================+
+         * | 0      | 1    | Status                                  |
+         * | 1      | 1    | The number of invalid Parameters (n)    |
+         * | 2      | n    | Invalid parameters                      |
+         * +=========================================================+
+         */
+        if (status == NCI_REQUEST_SUCCESS &&
+            payload->size >= 2 &&
+            payload->bytes[0] == NCI_STATUS_OK) {
+            GDEBUG("%c CORE_SET_CONFIG_RSP ok", DIR_IN);
+        } else {
+            GWARN("CORE_SET_CONFIG_CMD failed (continuing anyway)");
+        }
+        nci_transition_finish(self, NULL);
+        return;
+    }
+    nci_sm_stall(sm, NCI_STALL_ERROR);
+}
+
+static
+void
+nci_transition_reset_set_config(
+    NciTransition* self)
+{
+    /*
+     * Table 10: Control Messages for Setting Configuration Parameters
+     *
+     * CORE_SET_CONFIG_CMD
+     *
+     * +=========================================================+
+     * | Offset | Size | Description                             |
+     * +=========================================================+
+     * | 0      | 1    | The number of Parameter fields (n)      |
+     * | 1      | ...  | Parameters * n                          |
+     * |        |      +-----------------------------------------+
+     * |        |      | ID  | 1 | The identifier                |
+     * |        |      | Len | 1 | The length of Val (m)         |
+     * |        |      | Val | m | The value of the parameter    |
+     * +=========================================================+
+     */
+    static const guint8 cmd[] = {
+        2,
+        NCI_CONFIG_PA_BAIL_OUT, 0x01, 0x00,
+        NCI_CONFIG_PB_BAIL_OUT, 0x01, 0x00
+    };
+
+    GDEBUG("%c CORE_SET_CONFIG_CMD", DIR_OUT);
+    nci_transition_send_command_static(self,
+        NCI_GID_CORE, NCI_OID_CORE_SET_CONFIG, cmd, sizeof(cmd),
+        nci_transition_reset_set_config_rsp);
+}
+
+static
+void
 nci_transition_reset_get_config_rsp(
     NCI_REQUEST_STATUS status,
     const GUtilData* payload,
@@ -72,17 +146,54 @@ nci_transition_reset_get_config_rsp(
          * +=========================================================+
          * | 0      | 1    | Status                                  |
          * | 1      | 1    | The number of Parameters (n)            |
-         * | 2      | ...  | Parameter (ID, Len, Val)                |
+         * | 2      | ...  | Parameters                              |
+         * |        |      +-----------------------------------------+
+         * |        |      | ID  | 1 | The identifier                |
+         * |        |      | Len | 1 | The length of Val (m)         |
+         * |        |      | Val | m | The value of the parameter    |
          * +=========================================================+
          */
-        if (status == NCI_REQUEST_SUCCESS &&
-            payload->size > 1 &&
-            payload->bytes[0] == NCI_STATUS_OK) {
-            GDEBUG("%c CORE_GET_CONFIG_RSP ok", DIR_IN);
-            nci_transition_finish(self, NULL);
+        if (status == NCI_REQUEST_SUCCESS && payload->size >= 2) {
+            const guint8* pkt = payload->bytes;
+            const guint len = payload->size;
+            const uint n = pkt[1];
+
+            if (pkt[0] == NCI_STATUS_OK) {
+                GDEBUG("%c CORE_GET_CONFIG_RSP ok", DIR_IN);
+            } else if (pkt[0] == NCI_STATUS_INVALID_PARAM && len >= 2 + n*2) {
+#if GUTIL_LOG_DEBUG
+                /*
+                 * [NFCForum-TS-NCI-1.0]
+                 * 4.3.2 Retrieve the Configuration
+                 *
+                 * If the DH tries to retrieve any parameter(s) that
+                 * are not available in the NFCC, the NFCC SHALL respond
+                 * with a CORE_GET_CONFIG_RSP with a Status field of
+                 * STATUS_INVALID_PARAM, containing each unavailable
+                 * Parameter ID with a Parameter Len field of value zero.
+                 * In this case, the CORE_GET_CONFIG_RSP SHALL NOT include
+                 * any parameter(s) that are available on the NFCC.
+                 */
+                if (GLOG_ENABLED(GLOG_LEVEL_DEBUG)) {
+                    GString* buf = g_string_new(NULL);
+                    guint i;
+
+                    for (i = 0; i < n; i++) {
+                        g_string_append_printf(buf, " %02x", pkt[2 + i*2]);
+                    }
+                    GDEBUG("%c CORE_GET_CONFIG_RSP invalid parameter(s):%s",
+                        DIR_IN, buf->str);
+                    g_string_free(buf, TRUE);
+                }
+#endif
+            } else {
+                GWARN("CORE_GET_CONFIG_CMD error 0x%02x (continuing anyway)",
+                    payload->bytes[0]);
+            }
+            nci_transition_reset_set_config(self);
             return;
         } else {
-            GWARN("CORE_GET_CONFIG_CMD failed");
+            GWARN("CORE_GET_CONFIG_CMD failed (continuing anyway)");
         }
     }
     nci_sm_stall(sm, NCI_STALL_ERROR);
@@ -106,11 +217,9 @@ nci_transition_reset_get_config(
      * +=========================================================+
      */
     static const guint8 cmd[] = {
-        4,
-        NCI_CONFIG_PI_BIT_RATE,
-        NCI_CONFIG_LA_SEL_INFO,
-        NCI_CONFIG_LF_PROTOCOL_TYPE,
-        NCI_CONFIG_TOTAL_DURATION
+        2,
+        NCI_CONFIG_PA_BAIL_OUT,
+        NCI_CONFIG_PB_BAIL_OUT
     };
 
     /*
