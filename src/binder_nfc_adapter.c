@@ -172,6 +172,11 @@ binder_nfc_adapter_close(
 
 static
 void
+binder_nfc_adapter_state_check(
+    BinderNfcAdapter* self);
+
+static
+void
 binder_hexdump(
     GLogModule* log,
     int level,
@@ -437,6 +442,26 @@ binder_nfc_client_close(
 
 static
 gulong
+binder_nfc_client_core_initialized(
+    BinderNfcAdapter* self,
+    GBinderClientReplyFunc reply)
+{
+    return gbinder_client_transact(self->client,
+        BINDER_NFC_REQ_CORE_INITIALIZED, 0, NULL, reply, NULL, self);
+}
+
+static
+gulong
+binder_nfc_client_prediscover(
+    BinderNfcAdapter* self,
+    GBinderClientReplyFunc reply)
+{
+    return gbinder_client_transact(self->client,
+        BINDER_NFC_REQ_PREDISCOVER, 0, NULL, reply, NULL, self);
+}
+
+static
+gulong
 binder_nfc_client_power_cycle(
     BinderNfcAdapter* self,
     GBinderClientReplyFunc reply)
@@ -458,9 +483,15 @@ binder_nfc_adapter_set_power(
     if (self->power_switch_pending) {
         self->power_switch_pending = FALSE;
         self->power_on = on;
+        if (on) {
+            nci_core_restart(self->nci);
+        }
         nfc_adapter_power_notify(&self->adapter, on, TRUE);
     } else if (self->power_on != on) {
         self->power_on = on;
+        if (on) {
+            nci_core_restart(self->nci);
+        }
         nfc_adapter_power_notify(&self->adapter, on, FALSE);
     }
 }
@@ -479,7 +510,6 @@ binder_nfc_adapter_open_done(
     BinderNfcAdapter* self)
 {
     GDEBUG("Power on");
-    nci_core_restart(self->nci);
     binder_nfc_adapter_set_power(self, TRUE);
 }
 
@@ -712,11 +742,13 @@ binder_nfc_adapter_prediscover_reply(
         gbinder_remote_reply_read_int32(reply, &result)) {
         GDEBUG("PREDISCOVER status %d", result);
     } else {
-        GDEBUG("PREDISCOVER status failed");
+        GDEBUG("PREDISCOVER status failed (that's ok)");
     }
 #endif /* GUTIL_LOG_DEBUG */
 
+    self->pending_tx = 0;
     nci_core_set_state(self->nci, NCI_RFST_DISCOVERY);
+    binder_nfc_adapter_state_check(self);
 }
 
 static
@@ -736,26 +768,46 @@ binder_nfc_adapter_core_initialized_reply(
         gbinder_remote_reply_read_int32(reply, &result)) {
         GDEBUG("CORE_INITIALIZED status %d", result);
     } else {
-        GDEBUG("CORE_INITIALIZED failed");
+        GDEBUG("CORE_INITIALIZED failed (that's ok)");
     }
 #endif /* GUTIL_LOG_DEBUG */
 
-    binder_nfc_adapter_power_check(self);
-    binder_nfc_adapter_mode_check(self);
-    gbinder_client_transact(self->client, BINDER_NFC_REQ_PREDISCOVER, 0, NULL,
-        binder_nfc_adapter_prediscover_reply, NULL, self);
+    self->pending_tx = 0;
+    binder_nfc_adapter_state_check(self);
 }
 
 static
 void
-binder_nfc_adapter_maybe_drop_target(
+binder_nfc_adapter_nci_check(
     BinderNfcAdapter* self)
 {
     NciCore* nci = self->nci;
 
-    if (nci->next_state != NCI_RFST_POLL_ACTIVE) {
-        binder_nfc_adapter_drop_target(self);
+    if (self->power_on && self->need_power && !self->pending_tx) {
+        if (nci->current_state == NCI_RFST_IDLE &&
+            nci->next_state == NCI_RFST_IDLE) {
+            if (!self->core_initialized) {
+                self->core_initialized = TRUE;
+                self->pending_tx = binder_nfc_client_core_initialized(self,
+                    binder_nfc_adapter_core_initialized_reply);
+            } else {
+                /* This includes both first time initialization and the case
+                 * when NCI state machine has switched to IDLE by itself. */
+                self->pending_tx = binder_nfc_client_prediscover(self,
+                    binder_nfc_adapter_prediscover_reply);
+            }
+        }
     }
+}
+
+static
+void
+binder_nfc_adapter_state_check(
+    BinderNfcAdapter* self)
+{
+    binder_nfc_adapter_nci_check(self);
+    binder_nfc_adapter_power_check(self);
+    binder_nfc_adapter_mode_check(self);
 }
 
 static
@@ -764,7 +816,12 @@ binder_nfc_adapter_nci_next_state_changed(
     NciCore* nci,
     void* user_data)
 {
-    binder_nfc_adapter_maybe_drop_target(BINDER_NFC_ADAPTER(user_data));
+    BinderNfcAdapter* self = BINDER_NFC_ADAPTER(user_data);
+
+    if (nci->next_state != NCI_RFST_POLL_ACTIVE) {
+        binder_nfc_adapter_drop_target(self);
+    }
+    binder_nfc_adapter_state_check(self);
 }
 
 static
@@ -773,18 +830,7 @@ binder_nfc_adapter_nci_current_state_changed(
     NciCore* nci,
     void* user_data)
 {
-    BinderNfcAdapter* self = BINDER_NFC_ADAPTER(user_data);
-
-    binder_nfc_adapter_maybe_drop_target(self);
-    if (nci->current_state == NCI_RFST_IDLE && !self->core_initialized) {
-        self->core_initialized = TRUE;
-        gbinder_client_transact(self->client,
-            BINDER_NFC_REQ_CORE_INITIALIZED, 0, NULL,
-            binder_nfc_adapter_core_initialized_reply, NULL, self);
-    } else {
-        binder_nfc_adapter_power_check(self);
-        binder_nfc_adapter_mode_check(self);
-    }
+    binder_nfc_adapter_state_check(BINDER_NFC_ADAPTER(user_data));
 }
 
 static
