@@ -45,27 +45,28 @@ nci_parse_mode_param(
     switch (mode) {
     case NCI_MODE_ACTIVE_POLL_A:
     case NCI_MODE_PASSIVE_POLL_A:
+        /*
+         * NFCForum-TS-NCI-1.0
+         * Table 54: Specific Parameters for NFC-A Poll Mode
+         *
+         * +=========================================================+
+         * | Offset | Size | Description                             |
+         * +=========================================================+
+         * | 0      | 2    | SENS_RES Response                       |
+         * | 2      | 1    | Length of NFCID1 Parameter (n)          |
+         * | 3      | n    | NFCID1 (0, 4, 7, or 10 Octets)          |
+         * | 3 + n  | 1    | SEL_RES Response Length (m)             |
+         * | 4 + n  | m    | SEL_RES Response (0 or 1 Octet)         |
+         * +=========================================================+
+         */
         if (len >= 4) {
             NciModeParamPollA* ppa = &param->poll_a;
 
-            /*
-             * Table 54: Specific Parameters for NFC-A Poll Mode
-             *
-             * +=========================================================+
-             * | Offset | Size | Description                             |
-             * +=========================================================+
-             * | 0      | 2    | SENS_RES Response                       |
-             * | 2      | 1    | Length of NFCID1 Parameter (n)          |
-             * | 3      | n    | NFCID1 (0, 4, 7, or 10 Octets)          |
-             * | 3 + n  | 1    | SEL_RES Response Length (m)             |
-             * | 4 + n  | m    | SEL_RES Response (0 or 1 Octet)         |
-             * +=========================================================+
-             */
-            memset(param, 0, sizeof(*param));
+            memset(ppa, 0, sizeof(*ppa));
             ppa->sens_res[0] = bytes[0];
             ppa->sens_res[1] = bytes[1];
             ppa->nfcid1_len = bytes[2];
-            if (ppa->nfcid1_len <= 10 &&
+            if (ppa->nfcid1_len <= sizeof(ppa->nfcid1) &&
                 len >= ppa->nfcid1_len + 4 &&
                 len >= ppa->nfcid1_len + 4 +
                 bytes[ppa->nfcid1_len + 3]) {
@@ -93,6 +94,71 @@ nci_parse_mode_param(
         }
         GDEBUG("Failed to parse parameters for NFC-A poll mode");
         return NULL;
+    case NCI_MODE_PASSIVE_POLL_B:
+        /*
+         * NFCForum-TS-NCI-1.0
+         * Table 56: Specific Parameters for NFC-B Poll Mode
+         *
+         * +=========================================================+
+         * | Offset | Size | Description                             |
+         * +=========================================================+
+         * | 0      | 1    | SENSB_RES Response Length n (11 or 12)  |
+         * | 1      | n    | Bytes 2-12 or 13 or SENSB_RES Response  |
+         * +=========================================================+
+         *
+         * NFCForum-TS-DigitalProtocol-1.0
+         * Table 25: SENSB_RES Format
+         *
+         * +=========================================================+
+         * | Byte 1 | Byte 2-5 | Byte 6-9         | Byte 10-12 or 13 |
+         * +=========================================================+
+         * | 50h    | NFCID0   | Application Data | Protocol Info    |
+         * +=========================================================+
+         *
+         * Table 27: Protocol Info Format
+         *
+         * +=========================================================+
+         * | Byte 1 | 8 bits | Bit Rate Capability                   |
+         * +--------+--------+---------------------------------------+
+         * | Byte 2 | 4 bits | FSCI                                  |
+         * |        | 4 bits | Protocol_Type                         |
+         * +--------+--------+---------------------------------------+
+         * | Byte 3 | 4 bits | FWI                                   |
+         * |        | 2 bits | ADC                                   |
+         * |        | 2 bits | FO                                    |
+         * +-------------------optional -----------------------------+
+         * | Byte 4 | 4 bits | SFGI                                  |
+         * |        | 4 bits | RFU                                   |
+         * +=========================================================+
+         *
+         * Table 29: FSCI to FSC Conversion
+         * +=========================================================+
+         * | FSCI        | 0h  1h  2h  3h  4h  5h  6h  7h  8h  9h-Fh |
+         * |-------------+-------------------------------------------+
+         * | FSC (bytes) | 16  24  32  40  48  64  96  128 256 RFU   |
+         * +=========================================================+
+         */
+        if (len >= 1 && bytes[0] >= 11) {
+            NciModeParamPollB* ppb = &param->poll_b;
+            const guint fsci = (bytes[10] >> 4);
+            static const guint fsc_table[] = {
+                16, 24, 32, 40, 48, 64, 96, 128, 256
+            };
+
+            memset(ppb, 0, sizeof(*ppb));
+            memcpy(ppb->nfcid0, bytes + 1, 4);
+            ppb->fsc = (fsci < G_N_ELEMENTS(fsc_table)) ?
+                fsc_table[fsci] :
+                fsc_table[G_N_ELEMENTS(fsc_table) - 1];
+
+            GDEBUG("NFC-B");
+            GDEBUG("  PollB.fsc = %u", ppb->fsc);
+            GDEBUG("  PollB.nfcid0 = %02x %02x %02x %02x", ppb->nfcid0[0],
+                ppb->nfcid0[1], ppb->nfcid0[2], ppb->nfcid0[3]);
+            return param;
+        }
+        GDEBUG("Failed to parse parameters for NFC-B poll mode");
+        return NULL;
     default:
         GDEBUG("Unhandled activation mode %d", mode);
         return NULL;
@@ -107,6 +173,7 @@ nci_parse_discover_ntf(
     guint len)
 {
     /*
+     * NFCForum-TS-NCI-1.0
      * Table 52: Control Messages to Start Discovery
      *
      * RF_DISCOVER_NTF
@@ -179,6 +246,7 @@ nci_parse_iso_dep_poll_a_param(
     const guint8 ats_len = bytes[0];
 
     /*
+     * NFCForum-TS-NCI-1.0
      * Table 76: Activation Parameters for NFC-A/ISO-DEP Poll Mode
      *
      * +=========================================================+
@@ -204,7 +272,8 @@ nci_parse_iso_dep_poll_a_param(
         if (t0 & NFC_T4A_ATS_T0_B) ats_ptr++;
         if (t0 & NFC_T4A_ATS_T0_C) ats_ptr++;
         if (ats_ptr <= ats_end) {
-            /* Table 66: FSCI to FSC Conversion */
+            /* NFCForum-TS-DigitalProtocol-1.01
+             * Table 66: FSCI to FSC Conversion */
             const guint8 fsci = (t0 & NFC_T4A_ATS_T0_FSCI_MASK);
             static const guint fsc_table[] = {
                 16, 24, 32, 40, 48, 64, 96, 128, 256
@@ -253,8 +322,8 @@ nci_parse_activation_param(
         switch (mode) {
         case NCI_MODE_PASSIVE_POLL_A:
         case NCI_MODE_ACTIVE_POLL_A:
-            if (nci_parse_iso_dep_poll_a_param(&param->
-                iso_dep_poll_a, bytes, len)) {
+            if (nci_parse_iso_dep_poll_a_param(&param->iso_dep_poll_a,
+                bytes, len)) {
                 return param;
             }
             GDEBUG("Failed to parse parameters for NFC-A/ISO-DEP poll mode");
@@ -292,6 +361,7 @@ nci_parse_intf_activated_ntf(
     guint len)
 {
     /*
+     * NFCForum-TS-NCI-1.0
      * Table 61: Notification for RF Interface activation
      *
      * RF_INTF_ACTIVATED_NTF

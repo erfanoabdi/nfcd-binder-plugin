@@ -81,6 +81,10 @@ static const guint8 mode_param_success_data_full[] =
     { 0x04, 0x00, 0x04, 0x37, 0xf4, 0x95, 0x95, 0x01, 0x20 };
 static const guint8 mode_param_success_data_no_nfcid1[] =
     { 0x04, 0x00, 0x00, 0x01, 0x20 };
+static const guint8 mode_param_success_data_poll_b[] =
+    { 0x0b, 0x65, 0xe6, 0x70, 0x15, 0xe1, 0xf3, 0x5e, 0x11, 0x77, 0x87, 0x95 };
+static const guint8 mode_param_success_data_poll_b_rfu[] =
+    { 0x0b, 0x65, 0xe6, 0x70, 0x15, 0xe1, 0xf3, 0x5e, 0x11, 0x77, 0x97, 0x95 };
 static const TestModeParamSuccessData mode_param_success_tests[] = {
     {
         .name = "minimal",
@@ -94,11 +98,21 @@ static const TestModeParamSuccessData mode_param_success_tests[] = {
         .expected = { .poll_a = { { 0x04, 0x00 }, 0, { 0 }, 1, 0x20 } }
     },{
         .name = "full",
-        .mode = NCI_MODE_ACTIVE_POLL_A,
+        .mode = NCI_MODE_PASSIVE_POLL_A,
         .data = { TEST_ARRAY_AND_SIZE(mode_param_success_data_full) },
         .expected = {
             .poll_a = { {0x04, 0x00}, 4, {0x37, 0xf4, 0x95, 0x95}, 1, 0x20 }
         }
+    },{
+        .name = "poll_b",
+        .mode = NCI_MODE_PASSIVE_POLL_B,
+        .data = { TEST_ARRAY_AND_SIZE(mode_param_success_data_poll_b) },
+        .expected = { .poll_b = { {0x65, 0xe6, 0x70, 0x15}, 256 } }
+    },{
+        .name = "poll_b_rfu", /* RFU part of FSCI to FSC conversion table */
+        .mode = NCI_MODE_PASSIVE_POLL_B,
+        .data = { TEST_ARRAY_AND_SIZE(mode_param_success_data_poll_b_rfu) },
+        .expected = { .poll_b = { {0x65, 0xe6, 0x70, 0x15}, 256 } }
     }
 };
 
@@ -133,10 +147,20 @@ static const guint8 mode_param_fail_data_too_short_3[] =
 static const guint8 mode_param_fail_data_too_long[] =
     { 0x04, 0x00, 0x0b /* exceeds max 10 */, 0x01, 0x02, 0x03,
       0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x01, 0x20 };
+static const guint8 mode_param_fail_pollb_data_too_short_1[] =
+    { 0x0a, 0x65, 0xe6, 0x70, 0x15, 0xe1, 0xf3, 0x5e, 0x11, 0x77, 0x87 };
 static const TestModeParamFailData mode_param_fail_tests[] = {
     {
         .name = "unhandled_mode",
         .mode = NCI_MODE_PASSIVE_LISTEN_15693
+    },{
+        .name = "passive_poll_a_empty",
+        .mode = NCI_MODE_PASSIVE_POLL_A,
+        .data = { NULL, 0 }
+    },{
+        .name = "active_poll_a_empty",
+        .mode = NCI_MODE_ACTIVE_POLL_A,
+        .data = { NULL, 0 }
     },{
         .name = "too_short/poll_a",
         .mode = NCI_MODE_ACTIVE_POLL_A,
@@ -157,6 +181,14 @@ static const TestModeParamFailData mode_param_fail_tests[] = {
         .name = "too_long",
         .mode = NCI_MODE_ACTIVE_POLL_A,
         .data = { TEST_ARRAY_AND_SIZE(mode_param_fail_data_too_long) }
+    },{
+        .name = "poll_b_empty",
+        .mode = NCI_MODE_PASSIVE_POLL_B,
+        .data = { NULL, 0 }
+    },{
+        .name = "poll_b_too_short",
+        .mode = NCI_MODE_PASSIVE_POLL_B,
+        .data = { TEST_ARRAY_AND_SIZE(mode_param_fail_pollb_data_too_short_1) }
     }
 };
 

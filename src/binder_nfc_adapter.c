@@ -847,6 +847,18 @@ binder_nfc_adapter_convert_poll_a(
 
 #ifdef NFC_TAG_T4_H
 static
+const NfcParamPollB*
+binder_nfc_adapter_convert_poll_b(
+    NfcParamPollB* dest,
+    const NciModeParamPollB* src)
+{
+    dest->fsc = src->fsc;
+    dest->nfcid0.bytes = src->nfcid0;
+    dest->nfcid0.size = sizeof(src->nfcid0);
+    return dest;
+}
+
+static
 const NfcParamIsoDepPollA*
 binder_nfc_adapter_convert_iso_dep_poll_a(
     NfcParamIsoDepPollA* dest,
@@ -878,6 +890,9 @@ binder_nfc_adapter_nci_intf_activated(
     /* Figure out what kind of target we are dealing with */
     if (mp) {
         NfcParamPollA poll_a;
+#ifdef NFC_TAG_T4_H
+        NfcParamPollB poll_b;
+#endif
 
         switch (ntf->mode) {
         case NCI_MODE_PASSIVE_POLL_A:
@@ -908,6 +923,21 @@ binder_nfc_adapter_nci_intf_activated(
             }
             break;
         case NCI_MODE_PASSIVE_POLL_B:
+            switch (ntf->rf_intf) {
+            case NCI_RF_INTERFACE_ISO_DEP:
+#ifdef NFC_TAG_T4_H
+                /* ISO-DEP Type 4B */
+                tag = nfc_adapter_add_tag_t4b(&self->adapter, self->target,
+                    binder_nfc_adapter_convert_poll_b(&poll_b, &mp->poll_b),
+                    NULL);
+#endif
+                break;
+            case NCI_RF_INTERFACE_FRAME:
+            case NCI_RF_INTERFACE_NFCEE_DIRECT:
+            case NCI_RF_INTERFACE_NFC_DEP:
+                break;
+            }
+            break;
         case NCI_MODE_PASSIVE_POLL_F:
         case NCI_MODE_ACTIVE_POLL_F:
         case NCI_MODE_PASSIVE_POLL_15693:

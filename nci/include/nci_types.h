@@ -125,8 +125,15 @@ typedef struct nci_mode_param_poll_a {
     guint8 sel_res;
 } NciModeParamPollA;
 
+/* Table 56: Specific Parameters for NFC-B Poll Mode */
+typedef struct nci_mode_param_poll_b {
+    guint8 nfcid0[4];
+    guint fsc;  /* FSCI converted to bytes */
+} NciModeParamPollB;
+
 typedef union nci_mode_param {
     NciModeParamPollA poll_a;
+    NciModeParamPollB poll_b;
 } NciModeParam;
 
 /* Table 76: Activation Parameters for NFC-A/ISO-DEP Poll Mode */
