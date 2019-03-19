@@ -156,7 +156,7 @@ nci_transition_reset_get_config_rsp(
         if (status == NCI_REQUEST_SUCCESS && payload->size >= 2) {
             const guint8* pkt = payload->bytes;
             const guint len = payload->size;
-            const uint n = pkt[1];
+            const guint n = pkt[1];
 
             if (pkt[0] == NCI_STATUS_OK) {
                 GDEBUG("%c CORE_GET_CONFIG_RSP ok", DIR_IN);
