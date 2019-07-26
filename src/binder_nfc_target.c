@@ -66,6 +66,7 @@ struct binder_nfc_target {
     gulong event_id[EVENT_COUNT];
     guint send_in_progress;
     gboolean transmit_in_progress;
+    GBytes* pending_reply; /* Reply arrived before send has completed */
     BinderNfcTargetPresenceCheckFunc presence_check_fn;
 };
 
@@ -103,15 +104,64 @@ binder_nfc_target_presence_check_free1(
 
 static
 void
-binder_nfc_target_drop_nci(
+binder_nfc_target_cancel_send(
     BinderNfcTarget* self)
 {
     if (self->send_in_progress) {
         nci_core_cancel(self->nci, self->send_in_progress);
         self->send_in_progress = 0;
+        if (self->pending_reply) {
+            g_bytes_unref(self->pending_reply);
+            self->pending_reply = NULL;
+        }
     }
+}
+
+static
+void
+binder_nfc_target_drop_nci(
+    BinderNfcTarget* self)
+{
+    binder_nfc_target_cancel_send(self);
     nci_core_remove_all_handlers(self->nci, self->event_id);
     self->nci = NULL;
+}
+
+static
+void
+binder_nfc_target_finish_transmit(
+    BinderNfcTarget* self,
+    const guint8* payload,
+    guint len)
+{
+    NfcTarget* target = &self->target;
+
+    self->transmit_in_progress = FALSE;
+    if (len > 0) {
+        if (self->rf_intf == NCI_RF_INTERFACE_FRAME) {
+            const guint8 status = payload[len - 1];
+
+            /*
+             * 8.2 Frame RF Interface
+             * 8.2.1.2 Data from RF to the DH
+             */
+            if (status == NCI_STATUS_OK) {
+                nfc_target_transmit_done(target, NFC_TRANSMIT_STATUS_OK,
+                    payload, len - 1);
+                return;
+            }
+            GDEBUG("Transmission status 0x%02x", status);
+        } else if (self->rf_intf == NCI_RF_INTERFACE_ISO_DEP) {
+            /*
+             * 8.3 ISO-DEP RF Interface
+             * 8.3.1.2 Data from RF to the DH
+             */
+            nfc_target_transmit_done(target, NFC_TRANSMIT_STATUS_OK,
+                payload, len);
+            return;
+        }
+    }
+    nfc_target_transmit_done(target, NFC_TRANSMIT_STATUS_ERROR, NULL, 0);
 }
 
 static
@@ -125,6 +175,18 @@ binder_nfc_target_data_sent(
 
     GASSERT(self->send_in_progress);
     self->send_in_progress = 0;
+
+    if (self->pending_reply) {
+        gsize len;
+        GBytes* reply = self->pending_reply;
+        const guint8* payload = g_bytes_get_data(reply, &len);
+
+        /* We have been waiting for this send to complete */
+        GDEBUG("Send completed");
+        self->pending_reply = NULL;
+        binder_nfc_target_finish_transmit(self, payload, len);
+        g_bytes_unref(reply);
+    }
 }
 
 static
@@ -138,40 +200,23 @@ binder_nfc_target_data_packet_handler(
 {
     BinderNfcTarget* self = BINDER_NFC_TARGET(user_data);
 
-    if (cid == NCI_STATIC_RF_CONN_ID &&
-        self->transmit_in_progress && !self->send_in_progress) {
-        NfcTarget* target = &self->target;
-
-        self->transmit_in_progress = FALSE;
-        if (len > 0) {
-            if (self->rf_intf == NCI_RF_INTERFACE_FRAME) {
-                const guint8* payload = data;
-                const guint8 status = payload[len - 1];
-
-                /*
-                 * 8.2 Frame RF Interface
-                 * 8.2.1.2 Data from RF to the DH
-                 */
-                if (status == NCI_STATUS_OK) {
-                    nfc_target_transmit_done(target, NFC_TRANSMIT_STATUS_OK,
-                        data, len - 1);
-                    return;
-                }
-                GDEBUG("Transmission status 0x%02x", status);
-            } else if (self->rf_intf == NCI_RF_INTERFACE_ISO_DEP) {
-                /*
-                 * 8.3 ISO-DEP RF Interface
-                 * 8.3.1.2 Data from RF to the DH
-                 */
-                nfc_target_transmit_done(target, NFC_TRANSMIT_STATUS_OK,
-                    data, len);
-                return;
-            }
+    if (cid == NCI_STATIC_RF_CONN_ID && self->transmit_in_progress &&
+        !self->pending_reply) {
+        if (G_UNLIKELY(self->send_in_progress)) {
+            /*
+             * Due to multi-threaded nature of binder driver and services,
+             * incoming reply transactions sometimes get handled before
+             * send completion callback has been invoked. Postpone transfer
+             * completion until then.
+             */
+            GDEBUG("Waiting for send to complete");
+            self->pending_reply = g_bytes_new(data, len);
+        } else {
+            binder_nfc_target_finish_transmit(self, data, len);
         }
-        nfc_target_transmit_done(target, NFC_TRANSMIT_STATUS_ERROR, NULL, 0);
-        return;
+    } else {
+        GDEBUG("Unhandled data packet, cid=0x%02x %u byte(s)", cid, len);
     }
-    GDEBUG("Unhandled data packet, cid=0x%02x %u byte(s)", cid, len);
 }
 
 static
@@ -343,10 +388,7 @@ binder_nfc_target_cancel_transmit(
     BinderNfcTarget* self = BINDER_NFC_TARGET(target);
 
     self->transmit_in_progress = FALSE;
-    if (self->send_in_progress) {
-        nci_core_cancel(self->nci, self->send_in_progress);
-        self->send_in_progress = 0;
-    }
+    binder_nfc_target_cancel_send(self);
 }
 
 static
