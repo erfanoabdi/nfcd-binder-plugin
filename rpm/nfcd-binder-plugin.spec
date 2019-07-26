@@ -1,14 +1,17 @@
 Name: nfcd-binder-plugin
-Version: 1.0.3
+Version: 1.0.4
 Release: 0
 Summary: Binder-based NFC plugin
 Group: Development/Libraries
 License: BSD
 URL: https://github.com/mer-hybris/nfcd-binder-plugin
 Source: %{name}-%{version}.tar.bz2
-BuildRequires: pkgconfig(libgbinder) >= 1.0.30
+
+%define libgbinder_version 1.0.30
+
+BuildRequires: pkgconfig(libgbinder) >= %{libgbinder_version}
 BuildRequires: pkgconfig(nfcd-plugin) >= 1.0.8
-Requires: libgbinder >= 1.0.30
+Requires: libgbinder >= %{libgbinder_version}
 Requires: nfcd
 
 %description
