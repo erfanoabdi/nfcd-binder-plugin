@@ -35,6 +35,7 @@
 #include <nfc_adapter_impl.h>
 #include <nfc_target_impl.h>
 #include <nfc_tag_t2.h>
+#include <nfc_tag_t4.h>
 
 #include <nci_core.h>
 #include <nci_hal.h>
@@ -460,16 +461,6 @@ binder_nfc_client_prediscover(
         BINDER_NFC_REQ_PREDISCOVER, 0, NULL, reply, NULL, self);
 }
 
-static
-gulong
-binder_nfc_client_power_cycle(
-    BinderNfcAdapter* self,
-    GBinderClientReplyFunc reply)
-{
-    return gbinder_client_transact(self->client, BINDER_NFC_REQ_POWER_CYCLE,
-        0, NULL, reply, NULL, self);
-}
-
 /*==========================================================================*
  * Implementation
  *==========================================================================*/
@@ -845,7 +836,6 @@ binder_nfc_adapter_convert_poll_a(
     return dest;
 }
 
-#ifdef NFC_TAG_T4_H
 static
 const NfcParamPollB*
 binder_nfc_adapter_convert_poll_b(
@@ -868,7 +858,6 @@ binder_nfc_adapter_convert_iso_dep_poll_a(
     dest->t1 = src->t1;
     return dest;
 }
-#endif
 
 static
 void
@@ -890,9 +879,7 @@ binder_nfc_adapter_nci_intf_activated(
     /* Figure out what kind of target we are dealing with */
     if (mp) {
         NfcParamPollA poll_a;
-#ifdef NFC_TAG_T4_H
         NfcParamPollB poll_b;
-#endif
 
         switch (ntf->mode) {
         case NCI_MODE_PASSIVE_POLL_A:
@@ -904,7 +891,6 @@ binder_nfc_adapter_nci_intf_activated(
                     binder_nfc_adapter_convert_poll_a(&poll_a, &mp->poll_a));
                 break;
             case NCI_RF_INTERFACE_ISO_DEP:
-#ifdef NFC_TAG_T4_H
                 /* ISO-DEP Type 4A */
                 if (ntf->activation_param) {
                     const NciActivationParam* ap = ntf->activation_param;
@@ -915,7 +901,6 @@ binder_nfc_adapter_nci_intf_activated(
                         binder_nfc_adapter_convert_iso_dep_poll_a
                             (&iso_dep_poll_a, &ap->iso_dep_poll_a));
                 }
-#endif
                 break;
             case NCI_RF_INTERFACE_NFCEE_DIRECT:
             case NCI_RF_INTERFACE_NFC_DEP:
@@ -925,12 +910,10 @@ binder_nfc_adapter_nci_intf_activated(
         case NCI_MODE_PASSIVE_POLL_B:
             switch (ntf->rf_intf) {
             case NCI_RF_INTERFACE_ISO_DEP:
-#ifdef NFC_TAG_T4_H
                 /* ISO-DEP Type 4B */
                 tag = nfc_adapter_add_tag_t4b(&self->adapter, self->target,
                     binder_nfc_adapter_convert_poll_b(&poll_b, &mp->poll_b),
                     NULL);
-#endif
                 break;
             case NCI_RF_INTERFACE_FRAME:
             case NCI_RF_INTERFACE_NFCEE_DIRECT:
@@ -1280,13 +1263,8 @@ binder_nfc_adapter_init(
     adapter->supported_modes = NFC_MODE_READER_WRITER;
     adapter->supported_tags = NFC_TAG_TYPE_FELICA |
         NFC_TAG_TYPE_MIFARE_CLASSIC | NFC_TAG_TYPE_MIFARE_ULTRALIGHT;
-    adapter->supported_protocols =  NFC_PROTOCOL_T2_TAG
-#ifdef NFC_TAG_T4_H
-        | NFC_PROTOCOL_T4A_TAG
-        | NFC_PROTOCOL_T4B_TAG
-        | NFC_PROTOCOL_NFC_DEP
-#endif
-        ;
+    adapter->supported_protocols =  NFC_PROTOCOL_T2_TAG |
+        NFC_PROTOCOL_T4A_TAG | NFC_PROTOCOL_T4B_TAG | NFC_PROTOCOL_NFC_DEP;
 }
 
 static
