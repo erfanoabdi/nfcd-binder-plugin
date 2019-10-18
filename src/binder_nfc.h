@@ -77,7 +77,6 @@ binder_nfc_adapter_add_death_handler(
 
 NfcTarget*
 binder_nfc_target_new(
-    GBinderRemoteObject* remote,
     const NciIntfActivationNtf* ntf,
     NciCore* nci);
 
