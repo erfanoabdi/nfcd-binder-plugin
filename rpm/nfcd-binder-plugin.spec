@@ -1,5 +1,5 @@
 Name: nfcd-binder-plugin
-Version: 1.0.5
+Version: 1.1.0
 Release: 0
 Summary: Binder-based NFC plugin
 Group: Development/Libraries
