@@ -1,13 +1,12 @@
 # -*- Mode: makefile-gmake -*-
 
-.PHONY: clean all release
-.PHONY: nci_debug_lib nci_release_lib
+.PHONY: clean all debug release install
 
 #
 # Required packages
 #
 
-LDPKGS = libgbinder libglibutil gobject-2.0 glib-2.0
+LDPKGS = libncicore libgbinder libglibutil gobject-2.0 glib-2.0
 PKGS = $(LDPKGS) nfcd-plugin
 
 #
@@ -24,16 +23,6 @@ NAME = binder
 LIB_NAME = $(NAME)
 LIB_SONAME = $(LIB_NAME).so
 LIB = $(LIB_SONAME)
-
-#
-# libnfc-nci
-#
-
-NCI_LIB = libnci.a
-NCI_DIR = nci
-NCI_BUILD_DIR = $(NCI_DIR)/build
-NCI_DEBUG_LIB = $(NCI_BUILD_DIR)/debug/$(NCI_LIB)
-NCI_RELEASE_LIB = $(NCI_BUILD_DIR)/release/$(NCI_LIB)
 
 #
 # Sources
@@ -53,10 +42,6 @@ BUILD_DIR = build
 DEBUG_BUILD_DIR = $(BUILD_DIR)/debug
 RELEASE_BUILD_DIR = $(BUILD_DIR)/release
 
-NCI_DIR = nci
-NCI_SRC_DIR = $(NCI_DIR)/src
-NCI_CFLAGS = -I$(NCI_SRC_DIR)
-
 #
 # Tools and flags
 #
@@ -67,7 +52,7 @@ WARNINGS = -Wall
 BASE_FLAGS = -fPIC -fvisibility=hidden
 DEFINES = -DNFC_PLUGIN_EXTERNAL
 FULL_CFLAGS = $(BASE_FLAGS) $(CFLAGS) $(DEFINES) $(WARNINGS) -MMD -MP \
-  -I$(NCI_DIR)/include $(shell pkg-config --cflags $(PKGS))
+  $(shell pkg-config --cflags $(PKGS))
 FULL_LDFLAGS = $(BASE_FLAGS) $(LDFLAGS) -shared
 DEBUG_FLAGS = -g
 RELEASE_FLAGS =
@@ -86,19 +71,15 @@ DEBUG_CFLAGS = $(FULL_CFLAGS) $(DEBUG_FLAGS) -DDEBUG
 RELEASE_CFLAGS = $(FULL_CFLAGS) $(RELEASE_FLAGS) -O2
 
 LIBS = $(shell pkg-config --libs $(LDPKGS))
-DEBUG_LIBS = $(NCI_DEBUG_LIB) $(LIBS)
-RELEASE_LIBS = $(NCI_RELEASE_LIB) $(LIBS)
+DEBUG_LIBS = $(LIBS)
+RELEASE_LIBS = $(LIBS)
 
 #
 # Files
 #
 
-DEBUG_OBJS = \
-  $(SRC:%.c=$(DEBUG_BUILD_DIR)/%.o) \
-  $(NCI_SRC:%.c=$(DEBUG_BUILD_DIR)/%.o)
-RELEASE_OBJS = \
-  $(SRC:%.c=$(RELEASE_BUILD_DIR)/%.o) \
-  $(NCI_SRC:%.c=$(RELEASE_BUILD_DIR)/%.o)
+DEBUG_OBJS = $(SRC:%.c=$(DEBUG_BUILD_DIR)/%.o)
+RELEASE_OBJS = $(SRC:%.c=$(RELEASE_BUILD_DIR)/%.o)
 
 #
 # Dependencies
@@ -113,11 +94,9 @@ ifneq ($(strip $(DEPS)),)
 endif
 endif
 
-DEBUG_DEPS = $(NCI_DEBUG_LIB)
-RELEASE_DEPS = $(NCI_RELEASE_LIB)
+DEBUG_DEPS =
+RELEASE_DEPS =
 
-$(NCI_DEBUG_LIB): | nci_debug_lib
-$(NCI_RELEASE_LIB): | nci_release_lib
 $(DEBUG_OBJS): | $(DEBUG_BUILD_DIR)
 $(RELEASE_OBJS): | $(RELEASE_BUILD_DIR)
 
@@ -128,20 +107,13 @@ $(RELEASE_OBJS): | $(RELEASE_BUILD_DIR)
 DEBUG_LIB = $(DEBUG_BUILD_DIR)/$(LIB)
 RELEASE_LIB = $(RELEASE_BUILD_DIR)/$(LIB)
 
-debug: nci_debug_lib $(DEBUG_LIB)
+debug: $(DEBUG_LIB)
 
-release: nci_release_lib $(RELEASE_LIB)
+release: $(RELEASE_LIB)
 
 clean:
-	make -C $(NCI_DIR) clean
 	rm -f *~ rpm/*~ $(SRC_DIR)/*~
 	rm -fr $(BUILD_DIR)
-
-nci_debug_lib:
-	make -C $(NCI_DIR) debug
-
-nci_release_lib:
-	make -C $(NCI_DIR) release
 
 $(DEBUG_BUILD_DIR):
 	mkdir -p $@
@@ -154,12 +126,6 @@ $(DEBUG_BUILD_DIR)/%.o : $(SRC_DIR)/%.c
 
 $(RELEASE_BUILD_DIR)/%.o : $(SRC_DIR)/%.c
 	$(CC) -c $(RELEASE_CFLAGS) -MT"$@" -MF"$(@:%.o=%.d)" $< -o $@
-
-$(DEBUG_BUILD_DIR)/%.o : $(NCI_SRC_DIR)/%.c
-	$(CC) -c $(NCI_CFLAGS) $(DEBUG_CFLAGS) -MT"$@" -MF"$(@:%.o=%.d)" $< -o $@
-
-$(RELEASE_BUILD_DIR)/%.o : $(NCI_SRC_DIR)/%.c
-	$(CC) -c $(NCI_CFLAGS) $(RELEASE_CFLAGS) -MT"$@" -MF"$(@:%.o=%.d)" $< -o $@
 
 $(DEBUG_LIB): $(DEBUG_OBJS) $(DEBUG_DEPS)
 	$(LD) $(DEBUG_OBJS) $(DEBUG_LDFLAGS) $(DEBUG_LIBS) -o $@

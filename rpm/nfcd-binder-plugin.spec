@@ -10,6 +10,7 @@ Source: %{name}-%{version}.tar.bz2
 %define libgbinder_version 1.0.30
 %define nfcd_version 1.0.20
 
+BuildRequires: pkgconfig(libncicore)
 BuildRequires: pkgconfig(libgbinder) >= %{libgbinder_version}
 BuildRequires: pkgconfig(nfcd-plugin) >= %{nfcd_version}
 Requires: libgbinder >= %{libgbinder_version}
@@ -23,9 +24,6 @@ Binder-based NFC plugin for Android 8+.
 
 %build
 make %{_smp_mflags} KEEP_SYMBOLS=1 release
-
-%check
-make -C unit test
 
 %install
 rm -rf %{buildroot}

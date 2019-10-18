@@ -37,8 +37,6 @@
 #include <nfc_tag.h>
 #include <nfc_target_impl.h>
 
-#include <gbinder.h>
-
 #define T2T_CMD_READ (0x30)
 
 enum {
@@ -60,7 +58,6 @@ guint
 typedef NfcTargetClass BinderNfcTargetClass;
 struct binder_nfc_target {
     NfcTarget target;
-    GBinderRemoteObject* remote;
     NciCore* nci;
     NCI_RF_INTERFACE rf_intf;
     gulong event_id[EVENT_COUNT];
@@ -263,7 +260,6 @@ binder_nfc_target_presence_check_t4(
 
 NfcTarget*
 binder_nfc_target_new(
-    GBinderRemoteObject* remote,
     const NciIntfActivationNtf* ntf,
     NciCore* nci)
 {
@@ -323,7 +319,6 @@ binder_nfc_target_new(
          break;
      }
 
-     self->remote = gbinder_remote_object_ref(remote);
      self->rf_intf = ntf->rf_intf;
      self->nci = nci;
      self->event_id[EVENT_DATA_PACKET] = nci_core_add_data_packet_handler(nci,
@@ -429,7 +424,6 @@ binder_nfc_target_finalize(
     BinderNfcTarget* self = BINDER_NFC_TARGET(object);
 
     binder_nfc_target_drop_nci(self);
-    gbinder_remote_object_unref(self->remote);
     G_OBJECT_CLASS(binder_nfc_target_parent_class)->finalize(object);
 }
 

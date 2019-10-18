@@ -43,7 +43,6 @@
 #include <gbinder.h>
 
 #include <gutil_idlequeue.h>
-#include <gutil_idlepool.h>
 #include <gutil_misc.h>
 #include <gutil_macros.h>
 
@@ -92,7 +91,6 @@ struct binder_nfc_adapter {
     NfcTarget* target;
     char* fqname;
     GUtilIdleQueue* idle;
-    GUtilIdlePool* pool;
     gboolean core_initialized;
     gulong death_id;
 
@@ -874,7 +872,7 @@ binder_nfc_adapter_nci_intf_activated(
     binder_nfc_adapter_drop_target(self);
 
     /* Register the new tag */
-    self->target = binder_nfc_target_new(self->remote, ntf, nci);
+    self->target = binder_nfc_target_new(ntf, nci);
 
     /* Figure out what kind of target we are dealing with */
     if (mp) {
@@ -1247,7 +1245,6 @@ binder_nfc_adapter_init(
 
     self->hal_io.fn = &hal_io_functions;
     self->idle = gutil_idle_queue_new();
-    self->pool = gutil_idle_pool_new();
 
     self->nci = nci_core_new(&self->hal_io);
     self->nci_event_id[CORE_EVENT_CURRENT_STATE] =
@@ -1287,7 +1284,6 @@ binder_nfc_adapter_finalize(
 
     nci_core_remove_all_handlers(self->nci, self->nci_event_id);
     nci_core_free(self->nci);
-    gutil_idle_pool_destroy(self->pool);
     gutil_idle_queue_unref(self->idle);
     gbinder_client_cancel(self->client, self->pending_tx);
     gbinder_client_unref(self->client);
