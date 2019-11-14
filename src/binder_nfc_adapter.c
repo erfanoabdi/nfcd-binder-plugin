@@ -1285,6 +1285,7 @@ binder_nfc_adapter_finalize(
     nci_core_remove_all_handlers(self->nci, self->nci_event_id);
     nci_core_free(self->nci);
     gutil_idle_queue_unref(self->idle);
+    gbinder_client_cancel(self->client, self->nci_write_id);
     gbinder_client_cancel(self->client, self->pending_tx);
     gbinder_client_unref(self->client);
     gbinder_local_object_drop(self->callback);
