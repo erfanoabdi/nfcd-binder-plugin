@@ -6,7 +6,7 @@
 # Required packages
 #
 
-LDPKGS = libncicore libgbinder libglibutil gobject-2.0 glib-2.0
+LDPKGS = libncicore libnciplugin libgbinder libglibutil gobject-2.0 glib-2.0
 PKGS = $(LDPKGS) nfcd-plugin
 
 #
@@ -30,8 +30,7 @@ LIB = $(LIB_SONAME)
 
 SRC = \
   binder_nfc_adapter.c \
-  binder_nfc_plugin.c \
-  binder_nfc_target.c
+  binder_nfc_plugin.c
 
 #
 # Directories

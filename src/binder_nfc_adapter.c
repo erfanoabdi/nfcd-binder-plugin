@@ -32,17 +32,13 @@
 
 #include "binder_nfc.h"
 
-#include <nfc_adapter_impl.h>
-#include <nfc_target_impl.h>
-#include <nfc_tag_t2.h>
-#include <nfc_tag_t4.h>
+#include <nci_adapter_impl.h>
 
 #include <nci_core.h>
 #include <nci_hal.h>
 
 #include <gbinder.h>
 
-#include <gutil_idlequeue.h>
 #include <gutil_misc.h>
 #include <gutil_macros.h>
 
@@ -55,23 +51,8 @@ GLogModule binder_hexdump_log = {
     .flags = GLOG_FLAG_HIDE_NAME
 };
 
-/* Idle queue tags */
-enum {
-    IDLE_MODE_CHECK
-};
-
-/* NCI core events */
-enum {
-    CORE_EVENT_CURRENT_STATE,
-    CORE_EVENT_NEXT_STATE,
-    CORE_EVENT_INTF_ACTIVATED,
-    CORE_EVENT_COUNT
-};
-
-#define PRESENCE_CHECK_PERIOD_MS (250)
-
 typedef struct binder_nfc_adapter BinderNfcAdapter;
-typedef NfcAdapterClass BinderNfcAdapterClass;
+typedef NciAdapterClass BinderNfcAdapterClass;
 
 typedef
 void
@@ -79,18 +60,14 @@ void
     BinderNfcAdapter* self);
 
 struct binder_nfc_adapter {
-    NfcAdapter adapter;
+    NciAdapter adapter;
     GBinderRemoteObject* remote;
     GBinderClient* client;
     GBinderLocalObject* callback;
-    NciCore* nci;
-    gulong nci_event_id[CORE_EVENT_COUNT];
     NciHalIo hal_io;
     NciHalClient* hal_client;
     gulong nci_write_id;
-    NfcTarget* target;
     char* fqname;
-    GUtilIdleQueue* idle;
     gboolean core_initialized;
     gulong death_id;
 
@@ -100,19 +77,13 @@ struct binder_nfc_adapter {
     gulong pending_tx;
     BinderNfcAdapterFunc open_cplt;
     BinderNfcAdapterFunc close_cplt;
-
-    NFC_MODE desired_mode;
-    NFC_MODE current_mode;
-    gboolean mode_change_pending;
-
-    guint presence_check_id;
-    guint presence_check_timer;
 };
 
-G_DEFINE_TYPE(BinderNfcAdapter, binder_nfc_adapter, NFC_TYPE_ADAPTER)
+G_DEFINE_TYPE(BinderNfcAdapter, binder_nfc_adapter, NCI_TYPE_ADAPTER)
 #define BINDER_NFC_TYPE_ADAPTER (binder_nfc_adapter_get_type())
 #define BINDER_NFC_ADAPTER(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), \
         BINDER_NFC_TYPE_ADAPTER, BinderNfcAdapter))
+#define SUPER_CLASS binder_nfc_adapter_parent_class
 
 enum binder_nfc_adapter_signal {
     SIGNAL_DEATH,
@@ -209,69 +180,6 @@ binder_dump_data(
     if (gutil_log_enabled(log, level)) {
         binder_hexdump(log, level, dir, data, len);
     }
-}
-
-static
-void
-binder_nfc_adapter_drop_target(
-    BinderNfcAdapter* self)
-{
-    NfcTarget* target = self->target;
-
-    if (target) {
-        self->target = NULL;
-        if (self->presence_check_timer) {
-            g_source_remove(self->presence_check_timer);
-            self->presence_check_timer = 0;
-        }
-        if (self->presence_check_id) {
-            nci_core_cancel(self->nci, self->presence_check_id);
-            self->presence_check_id = 0;
-        }
-        GINFO("Target is gone");
-        nfc_target_gone(target);
-        nfc_target_unref(target);
-    }
-}
-
-static
-void
-binder_nfc_adapter_presence_check_done(
-    NfcTarget* target,
-    gboolean ok,
-    void* user_data)
-{
-    BinderNfcAdapter* self = BINDER_NFC_ADAPTER(user_data);
-
-    GDEBUG("Presence check %s", ok ? "ok" : "failed");
-    self->presence_check_id = 0;
-    if (!ok) {
-        nci_core_set_state(self->nci, NCI_RFST_DISCOVERY);
-    }
-}
-
-static
-gboolean
-binder_nfc_adapter_presence_check_timer(
-    gpointer user_data)
-{
-    BinderNfcAdapter* self = BINDER_NFC_ADAPTER(user_data);
-
-    if (!self->presence_check_id && !self->target->sequence) {
-        BinderNfcTarget* target = BINDER_NFC_TARGET(self->target);
-
-        self->presence_check_id = binder_nfc_target_presence_check(target,
-            binder_nfc_adapter_presence_check_done, self);
-        if (!self->presence_check_id) {
-            GDEBUG("Failed to start presence check");
-            self->presence_check_timer = 0;
-            nci_core_set_state(self->nci, NCI_RFST_DISCOVERY);
-            return G_SOURCE_REMOVE;
-        }
-    } else {
-        GDEBUG("Skipped presence check");
-    }
-    return G_SOURCE_CONTINUE;
 }
 
 /*==========================================================================*
@@ -469,19 +377,21 @@ binder_nfc_adapter_set_power(
     BinderNfcAdapter* self,
     gboolean on)
 {
+    NciCore* nci = self->adapter.nci;
+
     if (self->power_switch_pending) {
         self->power_switch_pending = FALSE;
         self->power_on = on;
         if (on) {
-            nci_core_restart(self->nci);
+            nci_core_restart(nci);
         }
-        nfc_adapter_power_notify(&self->adapter, on, TRUE);
+        nfc_adapter_power_notify(NFC_ADAPTER(self), on, TRUE);
     } else if (self->power_on != on) {
         self->power_on = on;
         if (on) {
-            nci_core_restart(self->nci);
+            nci_core_restart(nci);
         }
-        nfc_adapter_power_notify(&self->adapter, on, FALSE);
+        nfc_adapter_power_notify(NFC_ADAPTER(self), on, FALSE);
     }
 }
 
@@ -490,7 +400,9 @@ gboolean
 binder_nfc_adapter_can_close(
     BinderNfcAdapter* self)
 {
-    return (self->nci->current_state <= NCI_RFST_IDLE);
+    NciCore* nci = self->adapter.nci;
+
+    return (nci->current_state <= NCI_RFST_IDLE);
 }
 
 static
@@ -687,35 +599,6 @@ binder_nfc_adapter_power_check(
 
 static
 void
-binder_nfc_adapter_mode_check(
-    BinderNfcAdapter* self)
-{
-    NciCore* nci = self->nci;
-    const NFC_MODE mode = (nci->current_state > NCI_RFST_IDLE) ?
-        NFC_MODE_READER_WRITER : NFC_MODE_NONE;
-
-    if (self->mode_change_pending) {
-        if (mode == self->desired_mode) {
-            self->mode_change_pending = FALSE;
-            self->current_mode = mode;
-            nfc_adapter_mode_notify(&self->adapter, mode, TRUE);
-        }
-    } else if (self->current_mode != mode) {
-        self->current_mode = mode;
-        nfc_adapter_mode_notify(&self->adapter, mode, FALSE);
-    }
-}
-
-static
-void
-binder_nfc_adapter_mode_check1(
-    void* self)
-{
-    binder_nfc_adapter_mode_check(BINDER_NFC_ADAPTER(self));
-}
-
-static
-void
 binder_nfc_adapter_prediscover_reply(
     GBinderClient* client,
     GBinderRemoteReply* reply,
@@ -723,6 +606,7 @@ binder_nfc_adapter_prediscover_reply(
     void* user_data)
 {
     BinderNfcAdapter* self = BINDER_NFC_ADAPTER(user_data);
+    NciCore* nci = self->adapter.nci;
 
 #if GUTIL_LOG_DEBUG
     int result;
@@ -736,7 +620,7 @@ binder_nfc_adapter_prediscover_reply(
 #endif /* GUTIL_LOG_DEBUG */
 
     self->pending_tx = 0;
-    nci_core_set_state(self->nci, NCI_RFST_DISCOVERY);
+    nci_core_set_state(nci, NCI_RFST_DISCOVERY);
     binder_nfc_adapter_state_check(self);
 }
 
@@ -770,7 +654,7 @@ void
 binder_nfc_adapter_nci_check(
     BinderNfcAdapter* self)
 {
-    NciCore* nci = self->nci;
+    NciCore* nci = self->adapter.nci;
 
     if (self->power_on && self->need_power && !self->pending_tx) {
         if (nci->current_state == NCI_RFST_IDLE &&
@@ -796,160 +680,6 @@ binder_nfc_adapter_state_check(
 {
     binder_nfc_adapter_nci_check(self);
     binder_nfc_adapter_power_check(self);
-    binder_nfc_adapter_mode_check(self);
-}
-
-static
-void
-binder_nfc_adapter_nci_next_state_changed(
-    NciCore* nci,
-    void* user_data)
-{
-    BinderNfcAdapter* self = BINDER_NFC_ADAPTER(user_data);
-
-    if (nci->next_state != NCI_RFST_POLL_ACTIVE) {
-        binder_nfc_adapter_drop_target(self);
-    }
-    binder_nfc_adapter_state_check(self);
-}
-
-static
-void
-binder_nfc_adapter_nci_current_state_changed(
-    NciCore* nci,
-    void* user_data)
-{
-    binder_nfc_adapter_state_check(BINDER_NFC_ADAPTER(user_data));
-}
-
-static
-const NfcParamPollA*
-binder_nfc_adapter_convert_poll_a(
-    NfcParamPollA* dest,
-    const NciModeParamPollA* src)
-{
-    dest->sel_res = src->sel_res;
-    dest->nfcid1.bytes = src->nfcid1;
-    dest->nfcid1.size = src->nfcid1_len;
-    return dest;
-}
-
-static
-const NfcParamPollB*
-binder_nfc_adapter_convert_poll_b(
-    NfcParamPollB* dest,
-    const NciModeParamPollB* src)
-{
-    dest->fsc = src->fsc;
-    dest->nfcid0.bytes = src->nfcid0;
-    dest->nfcid0.size = sizeof(src->nfcid0);
-    return dest;
-}
-
-static
-const NfcParamIsoDepPollA*
-binder_nfc_adapter_convert_iso_dep_poll_a(
-    NfcParamIsoDepPollA* dest,
-    const NciActivationParamIsoDepPollA* src)
-{
-    dest->fsc = src->fsc;
-    dest->t1 = src->t1;
-    return dest;
-}
-
-static
-void
-binder_nfc_adapter_nci_intf_activated(
-    NciCore* nci,
-    const NciIntfActivationNtf* ntf,
-    void* user_data)
-{
-    BinderNfcAdapter* self = BINDER_NFC_ADAPTER(user_data);
-    const NciModeParam* mp = ntf->mode_param;
-    NfcTag* tag = NULL;
-
-    /* Drop the previous target, if any */
-    binder_nfc_adapter_drop_target(self);
-
-    /* Register the new tag */
-    self->target = binder_nfc_target_new(ntf, nci);
-
-    /* Figure out what kind of target we are dealing with */
-    if (mp) {
-        NfcParamPollA poll_a;
-        NfcParamPollB poll_b;
-
-        switch (ntf->mode) {
-        case NCI_MODE_PASSIVE_POLL_A:
-        case NCI_MODE_ACTIVE_POLL_A:
-            switch (ntf->rf_intf) {
-            case NCI_RF_INTERFACE_FRAME:
-                /* Type 2 Tag */
-                tag = nfc_adapter_add_tag_t2(&self->adapter, self->target,
-                    binder_nfc_adapter_convert_poll_a(&poll_a, &mp->poll_a));
-                break;
-            case NCI_RF_INTERFACE_ISO_DEP:
-                /* ISO-DEP Type 4A */
-                if (ntf->activation_param) {
-                    const NciActivationParam* ap = ntf->activation_param;
-                    NfcParamIsoDepPollA iso_dep_poll_a;
-
-                    tag = nfc_adapter_add_tag_t4a(&self->adapter, self->target,
-                        binder_nfc_adapter_convert_poll_a(&poll_a, &mp->poll_a),
-                        binder_nfc_adapter_convert_iso_dep_poll_a
-                            (&iso_dep_poll_a, &ap->iso_dep_poll_a));
-                }
-                break;
-            case NCI_RF_INTERFACE_NFCEE_DIRECT:
-            case NCI_RF_INTERFACE_NFC_DEP:
-                break;
-            }
-            break;
-        case NCI_MODE_PASSIVE_POLL_B:
-            switch (ntf->rf_intf) {
-            case NCI_RF_INTERFACE_ISO_DEP:
-                /* ISO-DEP Type 4B */
-                tag = nfc_adapter_add_tag_t4b(&self->adapter, self->target,
-                    binder_nfc_adapter_convert_poll_b(&poll_b, &mp->poll_b),
-                    NULL);
-                break;
-            case NCI_RF_INTERFACE_FRAME:
-            case NCI_RF_INTERFACE_NFCEE_DIRECT:
-            case NCI_RF_INTERFACE_NFC_DEP:
-                break;
-            }
-            break;
-        case NCI_MODE_PASSIVE_POLL_F:
-        case NCI_MODE_ACTIVE_POLL_F:
-        case NCI_MODE_PASSIVE_POLL_15693:
-        case NCI_MODE_PASSIVE_LISTEN_A:
-        case NCI_MODE_PASSIVE_LISTEN_B:
-        case NCI_MODE_PASSIVE_LISTEN_F:
-        case NCI_MODE_ACTIVE_LISTEN_A:
-        case NCI_MODE_ACTIVE_LISTEN_F:
-        case NCI_MODE_PASSIVE_LISTEN_15693:
-            break;
-        }
-    }
-
-    if (!tag) {
-        nfc_adapter_add_other_tag(&self->adapter, self->target);
-    }
-
-    /* Start periodic presence checks */
-    self->presence_check_timer = g_timeout_add(PRESENCE_CHECK_PERIOD_MS,
-        binder_nfc_adapter_presence_check_timer, self);
-}
-
-static
-void
-binder_nfc_adapter_schedule_mode_check(
-    BinderNfcAdapter* self)
-{
-    if (!gutil_idle_queue_contains_tag(self->idle, IDLE_MODE_CHECK)) {
-        gutil_idle_queue_add_tag(self->idle, IDLE_MODE_CHECK,
-            binder_nfc_adapter_mode_check1, self);
-    }
 }
 
 /*==========================================================================*
@@ -975,7 +705,7 @@ binder_nfc_adapter_new(
         self->client = gbinder_client_new(self->remote, BINDER_NFC);
         self->fqname = fqname;
         GDEBUG("Connected to %s", fqname);
-        return &self->adapter;
+        return NFC_ADAPTER(self);
     } else {
         GERR("Failed to connect to %s", fqname);
     }
@@ -1017,13 +747,31 @@ binder_nfc_adapter_add_death_handler(
  *==========================================================================*/
 
 static
+void
+binder_nfc_adapter_current_state_changed(
+    NciAdapter* adapter)
+{
+    NCI_ADAPTER_CLASS(SUPER_CLASS)->current_state_changed(adapter);
+    binder_nfc_adapter_state_check(BINDER_NFC_ADAPTER(adapter));
+}
+
+static
+void
+binder_nfc_adapter_next_state_changed(
+    NciAdapter* adapter)
+{
+    NCI_ADAPTER_CLASS(SUPER_CLASS)->next_state_changed(adapter);
+    binder_nfc_adapter_state_check(BINDER_NFC_ADAPTER(adapter));
+}
+
+static
 gboolean
 binder_nfc_adapter_submit_power_request(
     NfcAdapter* adapter,
     gboolean on)
 {
     BinderNfcAdapter* self = BINDER_NFC_ADAPTER(adapter);
-    NciCore* nci = self->nci;
+    NciCore* nci = self->adapter.nci;
 
     self->need_power = on;
     if (self->pending_tx) {
@@ -1065,32 +813,6 @@ binder_nfc_adapter_cancel_power_request(
 
     self->need_power = self->power_on;
     self->power_switch_pending = FALSE;
-}
-
-static
-gboolean
-binder_nfc_adapter_submit_mode_request(
-    NfcAdapter* adapter,
-    NFC_MODE mode)
-{
-    BinderNfcAdapter* self = BINDER_NFC_ADAPTER(adapter);
-
-    self->desired_mode = mode;
-    self->mode_change_pending = TRUE;
-    nci_core_set_state(self->nci, NCI_RFST_DISCOVERY);
-    binder_nfc_adapter_schedule_mode_check(self);
-    return TRUE;
-}
-
-static
-void
-binder_nfc_adapter_cancel_mode_request(
-    NfcAdapter* adapter)
-{
-    BinderNfcAdapter* self = BINDER_NFC_ADAPTER(adapter);
-
-    self->mode_change_pending = FALSE;
-    binder_nfc_adapter_schedule_mode_check(self);
 }
 
 /*==========================================================================*
@@ -1234,8 +956,6 @@ void
 binder_nfc_adapter_init(
     BinderNfcAdapter* self)
 {
-    NfcAdapter* adapter = &self->adapter;
-
     static const NciHalIoFunctions hal_io_functions = {
         .start = binder_nfc_adapter_hal_io_start,
         .stop = binder_nfc_adapter_hal_io_stop,
@@ -1244,35 +964,7 @@ binder_nfc_adapter_init(
     };
 
     self->hal_io.fn = &hal_io_functions;
-    self->idle = gutil_idle_queue_new();
-
-    self->nci = nci_core_new(&self->hal_io);
-    self->nci_event_id[CORE_EVENT_CURRENT_STATE] =
-        nci_core_add_current_state_changed_handler(self->nci,
-            binder_nfc_adapter_nci_current_state_changed, self);
-    self->nci_event_id[CORE_EVENT_NEXT_STATE] =
-        nci_core_add_next_state_changed_handler(self->nci,
-            binder_nfc_adapter_nci_next_state_changed, self);
-    self->nci_event_id[CORE_EVENT_INTF_ACTIVATED] =
-        nci_core_add_intf_activated_handler(self->nci,
-            binder_nfc_adapter_nci_intf_activated, self);
-
-    adapter->supported_modes = NFC_MODE_READER_WRITER;
-    adapter->supported_tags = NFC_TAG_TYPE_FELICA |
-        NFC_TAG_TYPE_MIFARE_CLASSIC | NFC_TAG_TYPE_MIFARE_ULTRALIGHT;
-    adapter->supported_protocols =  NFC_PROTOCOL_T2_TAG |
-        NFC_PROTOCOL_T4A_TAG | NFC_PROTOCOL_T4B_TAG | NFC_PROTOCOL_NFC_DEP;
-}
-
-static
-void
-binder_nfc_adapter_dispose(
-    GObject* object)
-{
-    BinderNfcAdapter* self = BINDER_NFC_ADAPTER(object);
-
-    binder_nfc_adapter_drop_target(self);
-    G_OBJECT_CLASS(binder_nfc_adapter_parent_class)->dispose(object);
+    nci_adapter_init_base(&self->adapter, &self->hal_io);
 }
 
 static
@@ -1282,9 +974,6 @@ binder_nfc_adapter_finalize(
 {
     BinderNfcAdapter* self = BINDER_NFC_ADAPTER(object);
 
-    nci_core_remove_all_handlers(self->nci, self->nci_event_id);
-    nci_core_free(self->nci);
-    gutil_idle_queue_unref(self->idle);
     gbinder_client_cancel(self->client, self->nci_write_id);
     gbinder_client_cancel(self->client, self->pending_tx);
     gbinder_client_unref(self->client);
@@ -1292,21 +981,23 @@ binder_nfc_adapter_finalize(
     gbinder_remote_object_remove_handler(self->remote, self->death_id);
     gbinder_remote_object_unref(self->remote);
     g_free(self->fqname);
-    G_OBJECT_CLASS(binder_nfc_adapter_parent_class)->finalize(object);
+    G_OBJECT_CLASS(SUPER_CLASS)->finalize(object);
 }
 
 static
 void
 binder_nfc_adapter_class_init(
-    NfcAdapterClass* klass)
+    BinderNfcAdapterClass* klass)
 {
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
+    NfcAdapterClass* nfc_adapter_class = NFC_ADAPTER_CLASS(klass);
 
-    klass->submit_power_request = binder_nfc_adapter_submit_power_request;
-    klass->cancel_power_request = binder_nfc_adapter_cancel_power_request;
-    klass->submit_mode_request = binder_nfc_adapter_submit_mode_request;
-    klass->cancel_mode_request = binder_nfc_adapter_cancel_mode_request;
-    object_class->dispose = binder_nfc_adapter_dispose;
+    klass->current_state_changed = binder_nfc_adapter_current_state_changed;
+    klass->next_state_changed = binder_nfc_adapter_next_state_changed;
+    nfc_adapter_class->submit_power_request =
+        binder_nfc_adapter_submit_power_request;
+    nfc_adapter_class->cancel_power_request =
+        binder_nfc_adapter_cancel_power_request;
     object_class->finalize = binder_nfc_adapter_finalize;
     binder_nfc_adapter_signals[SIGNAL_DEATH] =
         g_signal_new(SIGNAL_DEATH_NAME, G_OBJECT_CLASS_TYPE(klass),

@@ -11,6 +11,7 @@ Source: %{name}-%{version}.tar.bz2
 %define nfcd_version 1.0.20
 
 BuildRequires: pkgconfig(libncicore)
+BuildRequires: pkgconfig(libnciplugin)
 BuildRequires: pkgconfig(libgbinder) >= %{libgbinder_version}
 BuildRequires: pkgconfig(nfcd-plugin) >= %{nfcd_version}
 Requires: libgbinder >= %{libgbinder_version}
