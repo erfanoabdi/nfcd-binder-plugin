@@ -75,17 +75,6 @@ binder_nfc_adapter_add_death_handler(
     NfcAdapterFunc func,
     void* user_data);
 
-NfcTarget*
-binder_nfc_target_new(
-    const NciIntfActivationNtf* ntf,
-    NciCore* nci);
-
-guint
-binder_nfc_target_presence_check(
-    BinderNfcTarget* target,
-    BinderNfcTargetPresenseCheckFunc fn,
-    void* user_data);
-
 #endif /* BINDER_NFC_H */
 
 /*
