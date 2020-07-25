@@ -130,15 +130,18 @@ binder_nfc_plugin_service_list_proc(
     void* plugin)
 {
     BinderNfcPlugin* self = BINDER_NFC_PLUGIN(plugin);
-    char** ptr;
 
     self->list_call_id = 0;
-    for (ptr = services; *ptr; ptr++) {
-        if (g_str_has_prefix(*ptr, BINDER_NFC)) {
-            const char* sep = strchr(*ptr, '/');
+    if (services) {
+        char** ptr;
 
-            if (sep) {
-                binder_nfc_plugin_add_adapter(self, sep + 1);
+        for (ptr = services; *ptr; ptr++) {
+            if (g_str_has_prefix(*ptr, BINDER_NFC)) {
+                const char* sep = strchr(*ptr, '/');
+
+                if (sep) {
+                    binder_nfc_plugin_add_adapter(self, sep + 1);
+                }
             }
         }
     }
