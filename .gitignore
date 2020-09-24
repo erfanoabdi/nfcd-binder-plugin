@@ -1,2 +1,9 @@
 *~
 build
+debian/*.log
+debian/*.install
+debian/*.substvars
+debian/files
+debian/debhelper-build-stamp
+debian/tmp
+debian/nfcd-binder-plugin
