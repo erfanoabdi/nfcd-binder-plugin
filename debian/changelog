@@ -1,0 +1,5 @@
+nfcd-binder-plugin (1.1.5~ubports16.04.1) xenial; urgency=low
+
+  * Import into UBports repos
+
+ -- Alfred Neumayer <dev.beidl@gmail.com>  Thu, 24 Sep 2020 11:27:08 +0200

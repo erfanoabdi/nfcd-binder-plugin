@@ -1,0 +1,12 @@
+Source: nfcd-binder-plugin
+Section: misc
+Priority: optional
+Maintainer: Slava Monich <slava.monich@jolla.com>
+Build-Depends: debhelper (>= 8.1.3), libglib2.0-dev (>= 2.0), libglibutil-dev, libncicore-dev (>= 1.1.11)
+Standards-Version: 3.8.4
+
+Package: nfcd-binder-plugin
+Section: misc
+Architecture: any
+Depends: libncicore (>= 1.1.11), libnciplugin (>= 1.0.10), ${shlibs:Depends}, ${misc:Depends}
+Description: NFC daemon
