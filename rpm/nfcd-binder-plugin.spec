@@ -1,5 +1,5 @@
 Name: nfcd-binder-plugin
-Version: 1.1.6
+Version: 1.1.7
 Release: 0
 Summary: Binder-based NFC plugin
 License: BSD
@@ -25,8 +25,10 @@ Binder-based NFC plugin for Android 8+.
 %setup -q
 
 %build
-make %{_smp_mflags} KEEP_SYMBOLS=1 release \
-    %{?disable_hexdump: DISABLE_HEXDUMP=1}
+make %{_smp_mflags} \
+    %{?disable_hexdump: DISABLE_HEXDUMP=1} \
+    KEEP_SYMBOLS=1 \
+    release
 
 %install
 rm -rf %{buildroot}
