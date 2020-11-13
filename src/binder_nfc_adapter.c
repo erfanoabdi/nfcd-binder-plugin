@@ -132,19 +132,8 @@ enum BinderNfcStatus_t {
 
 #define DIR_IN  '>'
 #define DIR_OUT '<'
-#define DUMP(f,args...)  gutil_log(&binder_hexdump_log, \
-       GLOG_LEVEL_VERBOSE, f, ##args)
 
-static
-gboolean
-binder_nfc_adapter_close(
-    BinderNfcAdapter* self);
-
-static
-void
-binder_nfc_adapter_state_check(
-    BinderNfcAdapter* self);
-
+#ifndef DISABLE_HEXDUMP
 static
 void
 binder_hexdump(
@@ -181,6 +170,24 @@ binder_dump_data(
         binder_hexdump(log, level, dir, data, len);
     }
 }
+
+    #define BINDER_DUMP(dir, data, len)  binder_dump_data(dir, data, len)
+    #define DUMP(f,args...)  gutil_log(&binder_hexdump_log, \
+       GLOG_LEVEL_VERBOSE, f, ##args)
+#else
+    #define BINDER_DUMP(dir, data, len)
+    #define DUMP(f,args...)
+#endif /* !DISABLE_HEXDUMP */
+
+static
+gboolean
+binder_nfc_adapter_close(
+    BinderNfcAdapter* self);
+
+static
+void
+binder_nfc_adapter_state_check(
+    BinderNfcAdapter* self);
 
 /*==========================================================================*
  * INfcClientCallback
@@ -243,7 +250,7 @@ binder_nfc_callback_handle_data(
         NciHalClient* hal_client = self->hal_client;
 
         DUMP("%c data, %u byte(s)", DIR_IN, (guint)len);
-        binder_dump_data(DIR_IN, data, len);
+        BINDER_DUMP(DIR_IN, data, len);
         if (hal_client) {
             hal_client->fn->read(hal_client, data, len);
         }
@@ -328,7 +335,7 @@ binder_nfc_client_write(
     GBinderWriter writer;
     gulong id;
 
-    binder_dump_data(DIR_OUT, data, len);
+    BINDER_DUMP(DIR_OUT, data, len);
     gbinder_local_request_init_writer(req, &writer);
     gbinder_writer_append_hidl_vec(&writer, data, len, 1);
     id = gbinder_client_transact(self->client, BINDER_NFC_REQ_WRITE,
