@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2018-2019 Jolla Ltd.
- * Copyright (C) 2018-2019 Slava Monich <slava.monich@jolla.com>
+ * Copyright (C) 2018-2021 Jolla Ltd.
+ * Copyright (C) 2018-2021 Slava Monich <slava.monich@jolla.com>
  *
  * You may use this file under the terms of BSD license as follows:
  *
@@ -515,7 +515,7 @@ binder_nfc_adapter_close_done(
     BinderNfcAdapter* self)
 {
     /* We can release our local object now */
-    gbinder_local_object_unref(self->callback);
+    gbinder_local_object_drop(self->callback);
     self->callback = NULL;
 
     GDEBUG("Power off");
@@ -584,6 +584,18 @@ gboolean
 binder_nfc_adapter_close(
     BinderNfcAdapter* self)
 {
+    NciCore* nci = self->adapter.nci;
+
+    /* Should never be > NCI_RFST_IDLE but let's check >= just in case */
+    if (nci->current_state >= NCI_RFST_IDLE) {
+        /*
+         * Make sure that state machine isn't going to continue
+         * transition to RFST_DISCOVERY while we are closing the
+         * adapter.
+         */
+        nci_core_set_state(nci, NCI_RFST_IDLE);
+    }
+
     GDEBUG("Closing adapter");
     GASSERT(!self->pending_tx);
     self->close_cplt = binder_nfc_adapter_close_cplt;
